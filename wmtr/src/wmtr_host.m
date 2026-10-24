@@ -98,6 +98,12 @@ struct wmtr_host {
   _Atomic uint32_t trace_n;
   dispatch_queue_t compile_q, block_q;
   WMTRCallbackState *callbacks;
+  /* frees that found the free ring full (under callbacks->lock): moved into the ring as the client drains
+   * it, so a NoCopy buffer's deallocator never waits for the client. It may run inside the very call the
+   * client is blocked on (quit/logout free thousands of buffers with nothing draining in between). */
+  struct wmtr_free_entry *free_ovf;
+  uint32_t n_free_ovf, cap_free_ovf;
+  _Atomic uint32_t n_free_ovf_hint; /* n_free_ovf, read without the lock before a request */
   /* views the client created and has not released: released on destroy, so a client that exits
    * without ReleaseMetalView (DXMT never calls it at process exit) does not leave its layer behind */
   pthread_mutex_t view_lock;
@@ -702,23 +708,52 @@ keep_autoreleased(struct wmtr_host *h, uint32_t slot, uint16_t call, uint8_t *pa
 
 /* ------------------------------------------------------------------------------------------- *
  * overridden calls */
+/* move queued overflow frees into the free ring while it has room (callbacks->lock held) */
+static void
+flush_free_ovf_locked(struct wmtr_host *h) {
+  struct wmtr_ring *R = h->ring;
+  uint32_t n = h->n_free_ovf, k = 0;
+  uint64_t head = R->free_head;
+  while (k < n && head - __atomic_load_n(&R->free_tail, __ATOMIC_ACQUIRE) < WMTR_FREE_RING)
+    R->free_ring[head++ % WMTR_FREE_RING] = h->free_ovf[k++];
+  if (!k) return;
+  __atomic_store_n(&R->free_head, head, __ATOMIC_RELEASE);
+  memmove(h->free_ovf, h->free_ovf + k, (size_t)(n - k) * sizeof *h->free_ovf);
+  h->n_free_ovf = n - k;
+  atomic_store_explicit(&h->n_free_ovf_hint, n - k, memory_order_relaxed);
+}
+
+/* called from Metal's deallocator, often inside a call the client is blocked on: never wait. The client
+ * drains the ring only from its own calls (an allocation, or after a sync reply), which during quit or
+ * logout may not happen at all; waiting here would also block the executor, so the client could never
+ * drain either. Queue the free for the next request instead, and only drop it if the list cannot grow. */
 static void
 push_free(WMTRCallbackState *state, uint32_t blob, uint32_t off, uint64_t size) {
-  for (;;) {
-    pthread_mutex_lock(&state->lock);
-    struct wmtr_host *h = state->host;
-    if (!h) { pthread_mutex_unlock(&state->lock); return; }
-    struct wmtr_ring *R = h->ring;
-    uint64_t head = R->free_head;
-    if (head - __atomic_load_n(&R->free_tail, __ATOMIC_ACQUIRE) < WMTR_FREE_RING) {
-      R->free_ring[head % WMTR_FREE_RING] = (struct wmtr_free_entry){blob, off, (uint32_t)size, 0};
-      __atomic_store_n(&R->free_head, head + 1, __ATOMIC_RELEASE);
-      pthread_mutex_unlock(&state->lock);
-      return;
+  struct wmtr_free_entry e = {blob, off, (uint32_t)size, 0};
+  pthread_mutex_lock(&state->lock);
+  struct wmtr_host *h = state->host;
+  if (!h) { pthread_mutex_unlock(&state->lock); return; }
+  if (h->n_free_ovf) flush_free_ovf_locked(h);
+  struct wmtr_ring *R = h->ring;
+  uint64_t head = R->free_head;
+  if (!h->n_free_ovf && head - __atomic_load_n(&R->free_tail, __ATOMIC_ACQUIRE) < WMTR_FREE_RING) {
+    R->free_ring[head % WMTR_FREE_RING] = e;
+    __atomic_store_n(&R->free_head, head + 1, __ATOMIC_RELEASE);
+  } else {
+    if (h->n_free_ovf == h->cap_free_ovf) {
+      uint32_t cap = h->cap_free_ovf ? 2 * h->cap_free_ovf : WMTR_FREE_RING;
+      struct wmtr_free_entry *q = realloc(h->free_ovf, (size_t)cap * sizeof *q);
+      if (!q) { /* the range stays allocated until the client exits */
+        pthread_mutex_unlock(&state->lock);
+        LOG(0, "free ring full and no memory to queue: dropping a free of %llu bytes\n", (unsigned long long)size);
+        return;
+      }
+      h->free_ovf = q; h->cap_free_ovf = cap;
     }
-    pthread_mutex_unlock(&state->lock); /* client drains on its next allocation; destroy may retire it */
-    usleep(100);
+    h->free_ovf[h->n_free_ovf++] = e;
+    atomic_store_explicit(&h->n_free_ovf_hint, h->n_free_ovf, memory_order_relaxed);
   }
+  pthread_mutex_unlock(&state->lock);
 }
 
 static NTSTATUS
@@ -952,6 +987,11 @@ struct job { struct wmtr_host *h; uint8_t *copy; uint32_t len; };
 
 static void
 execute(struct wmtr_host *h, uint8_t *rec, uint32_t len) {
+  if (atomic_load_explicit(&h->n_free_ovf_hint, memory_order_relaxed)) {
+    pthread_mutex_lock(&h->callbacks->lock);
+    flush_free_ovf_locked(h);
+    pthread_mutex_unlock(&h->callbacks->lock);
+  }
   const struct wmtr_req_ext *r = (const void *)rec;
   const uint32_t *relocs = (const void *)(rec + sizeof *r);
   const struct wmtr_out *outs = (const void *)(rec + sizeof *r + 4u * r->n_reloc);
@@ -1279,6 +1319,13 @@ wmtr_host_destroy(struct wmtr_host *h) {
   /* let queued compile/blocking jobs finish: they call back into the embedder */
   dispatch_barrier_sync(h->compile_q, ^{});
   dispatch_barrier_sync(h->block_q, ^{});
+  /* overflow frees are of no use to a client that is gone; no deallocator can add one now
+   * (push_free saw host == NULL above and the executor has been joined) */
+  pthread_mutex_lock(&h->callbacks->lock);
+  free(h->free_ovf); h->free_ovf = NULL;
+  h->n_free_ovf = h->cap_free_ovf = 0;
+  atomic_store_explicit(&h->n_free_ovf_hint, 0, memory_order_relaxed);
+  pthread_mutex_unlock(&h->callbacks->lock);
   /* the client is gone: take down the views it never released */
   pthread_mutex_lock(&h->view_lock);
   for (uint32_t i = 0; i < h->n_views; i++) {
