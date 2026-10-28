@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import Combine
 import Foundation
@@ -9,12 +10,19 @@ import Foundation
 /// on every input source change on the Mac and whenever Desktop Mode gets the focus (Plasma
 /// starts without them). The keys stay the Mac's physical keys either way (evdev codes); the
 /// layout decides what they type. Main thread only.
+///
+/// The change notification comes late: switching with the Globe key, macOS often posts
+/// kTISNotifySelectedKeyboardInputSourceChanged 0.55-0.85 s (up to 2.6 s) after the input
+/// source changed. So while the launcher is the active app (the keyboard goes to SteamOS) it
+/// polls the current layout every 30 ms (12 µs a call); the notification covers the rest.
 final class KeyboardLayoutSync {
     private let settings: LauncherSettings
     private let send: (String) -> Bool
     private var last: String?
     private var observers: [NSObjectProtocol] = []
     private var subscription: AnyCancellable?
+    private var poll: Timer?
+    private var currentID = ""
 
     init(settings: LauncherSettings, send: @escaping (String) -> Bool) {
         self.settings = settings
@@ -28,6 +36,14 @@ final class KeyboardLayoutSync {
                 self?.push(force: false)
             })
         }
+        let nc = NotificationCenter.default
+        observers.append(nc.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.polling(true)
+        })
+        observers.append(nc.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.polling(false)
+        })
+        polling(NSApp.isActive)
         // @Published emits before the property changes.
         subscription = settings.$followMacKeyboard.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.push(force: true)
@@ -42,6 +58,29 @@ final class KeyboardLayoutSync {
         for delay in [1.5, 4, 8] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.push(force: true) }
         }
+    }
+
+    private func polling(_ on: Bool) {
+        poll?.invalidate()
+        poll = nil
+        guard on else { return }
+        currentID = KeyboardLayoutSync.currentID()
+        let t = Timer(timeInterval: 0.03, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let id = KeyboardLayoutSync.currentID()
+            if id != self.currentID {
+                self.currentID = id
+                self.push(force: false)
+            }
+        }
+        t.tolerance = 0.01
+        RunLoop.main.add(t, forMode: .common)
+        poll = t
+    }
+
+    private static func currentID() -> String {
+        guard let s = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return "" }
+        return property(s, kTISPropertyInputSourceID) as? String ?? ""
     }
 
     private func push(force: Bool) {
