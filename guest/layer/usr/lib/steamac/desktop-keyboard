@@ -28,13 +28,14 @@ def busctl(addr, *args):
 
 
 def kwin_layouts(addr):
-    """[(layout, variant)] KWin uses now, None while org.kde.keyboard is not up."""
+    """[(layout, display name, long name)] KWin uses now, None while org.kde.keyboard is
+    not up. The variant is not in it: the long name tells it ("Russian (Macintosh)")."""
     r = busctl(addr, "--json=short", "call", "org.kde.keyboard", "/Layouts",
                "org.kde.KeyboardLayouts", "getLayoutsList")
     if r.returncode != 0:
         return None
     try:
-        return [(l[0], l[1]) for l in json.loads(r.stdout)["data"][0]]
+        return [tuple(l) for l in json.loads(r.stdout)["data"][0]]
     except (ValueError, KeyError, IndexError, TypeError):
         return None
 
@@ -72,8 +73,10 @@ def main(argv):
 
     layouts = ",".join(l for l, _ in wanted)
     variants = ",".join(v for _, v in wanted)
+    before = None
     if (config("Use") != "true" or config("LayoutList") != layouts
             or config("VariantList") != variants):
+        before = kwin_layouts(addr)
         for key, value, kind in (("Use", "true", "bool"), ("LayoutList", layouts, None),
                                  ("VariantList", variants, None)):
             cmd = ["kwriteconfig6", "--file", "kxkbrc", "--group", "Layout", "--key", key]
@@ -84,10 +87,14 @@ def main(argv):
         print(f"desktop-keyboard: layouts {layouts} ({variants})", file=sys.stderr)
 
     # KWin registers org.kde.keyboard shortly after Plasma starts and applies a
-    # reloaded list asynchronously: select the layout once it has the list.
+    # reloaded list asynchronously: select the layout once it has the list (and,
+    # after a reload, once its list changed: a new variant keeps the codes).
+    codes = [l for l, _ in wanted]
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
-        if kwin_layouts(addr) == wanted:
+        now = kwin_layouts(addr)
+        if (now is not None and [l[0] for l in now] == codes
+                and (before is None or now != before or time.monotonic() > deadline - 13)):
             r = busctl(addr, "call", "org.kde.keyboard", "/Layouts",
                        "org.kde.KeyboardLayouts", "setLayout", "u", str(index))
             if r.returncode == 0:
@@ -95,7 +102,7 @@ def main(argv):
             print(f"desktop-keyboard: setLayout: {r.stderr.strip()}", file=sys.stderr)
             return 1
         time.sleep(0.2)
-    print(f"desktop-keyboard: KWin has {kwin_layouts(addr)}, not {wanted}", file=sys.stderr)
+    print(f"desktop-keyboard: KWin has {kwin_layouts(addr)}, not {codes}", file=sys.stderr)
     return 1
 
 
