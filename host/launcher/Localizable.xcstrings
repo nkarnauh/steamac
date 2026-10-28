@@ -1865,6 +1865,22 @@
         }
       }
     },
+    "Desktop Mode gets the keyboard layouts enabled on the Mac and switches with the Mac's input source (Fn/Globe, Control-Space)." : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Режим рабочего стола получает раскладки, включённые на Mac, и переключается вместе с источником ввода Mac (Fn/глобус, Control-пробел)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "桌面模式使用 Mac 上启用的键盘布局，并随 Mac 的输入法一起切换（Fn/地球仪键、Control-空格）。"
+          }
+        }
+      }
+    },
     "Disk image" : {
       "localizations" : {
         "ru" : {
@@ -7076,6 +7092,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "请使用 NAME=value 格式的词（最多 256 个字符）。名称必须以 VKD3D_、DXVK_、PROTON_、WINE_、MESA_、RADV_、VK_、DXMT_、MTL_ 或 STEAMAC_ 开头；值只能包含英文字母、数字和 _.,:;+-。"
+          }
+        }
+      }
+    },
+    "Use the Mac's keyboard layouts in Desktop Mode" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Раскладки клавиатуры Mac в режиме рабочего стола"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在桌面模式中使用 Mac 的键盘布局"
           }
         }
       }

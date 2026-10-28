@@ -451,6 +451,14 @@ do {
     gamePause.onConfirmedChange = { [weak wc] in wc?.gamePaused($0); gameStats.gamePaused($0) }
     // Settings > General "Share clipboard with SteamOS" (fx.clipboard).
     let clipboard = clipboardPort.map { ClipboardSync(port: $0, settings: settings) }
+    // Settings > General "Use the Mac's keyboard layouts in Desktop Mode" (fx.progress).
+    let keyboardLayouts = KeyboardLayoutSync(settings: settings) { progressPort.send($0) }
+    let focusBeforeKeyboard = progress.onFocus
+    progress.onFocus = { f in
+        focusBeforeKeyboard?(f)
+        if case .desktop = f { keyboardLayouts.desktopFocused() }
+    }
+    keyboardLayouts.start()
     let suspender = SuspendController(ctx: vm.ctx, clock: clockPort, sleepPort: sleepPort, window: wc, presenter: presenter,
                                       stall: stall, gamePause: gamePause, gpuCounters: gpuCounters)
     suspender.onShutdown = { lifecycle.requestShutdown() }
@@ -525,7 +533,7 @@ do {
     }
     console.start()
     vm.start()
-    withExtendedLifetime((presenter, gamepad, progressPort, supervisorWatch, perfSubscription, gamePause, suspender, clipboard,
+    withExtendedLifetime((presenter, gamepad, progressPort, keyboardLayouts, supervisorWatch, perfSubscription, gamePause, suspender, clipboard,
                           gameStats)) {
         app.run()
     }
