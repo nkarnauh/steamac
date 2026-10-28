@@ -211,7 +211,7 @@ Mac 版 Steam 自身的 UDP 27036 广播不会回灌客户机。
 
 | 选项卡 | 立即生效 | 下次启动时生效 |
 |---|---|---|
-| 通用 | 开关机覆盖层；GPU 空闲“仍在工作 — 正在加载或编译着色器…”指示；“当 FX Steam Launcher 在后台时”：**静音**（默认开：`krun_snd_set_volume(…, mute)` 约 150 ms 渐隐，切回窗口恢复音量）与**暂停游戏**（默认关：客户机代理只冻结焦点游戏——`systemctl --user freeze app-steam-app<appid>-*.scope`，cgroup v2；Steam、下载与更新继续；在线游戏可能断线）。代理确认冻结期间（`game-frozen`/`game-thawed`）窗口变暗并显示“游戏已暂停 · 点按以继续”卡片与标题“— 已暂停”；点按窗口恢复游戏且不传给客户机；崩溃报告（`--no-crash-reports`，见下）；**启动时检查更新**（默认开，见“更新检查”）；帧统计日志（`--perf-stats`） | 启动时全屏；**使用 Mac 的时区和时钟格式**（默认开，见上） |
+| 通用 | 开关机覆盖层；GPU 空闲“仍在工作 — 正在加载或编译着色器…”指示；“当 FX Steam Launcher 在后台时”：**静音**（默认开：`krun_snd_set_volume(…, mute)` 约 150 ms 渐隐，切回窗口恢复音量）与**暂停游戏**（默认关：客户机代理只冻结焦点游戏——`systemctl --user freeze app-steam-app<appid>-*.scope`，cgroup v2；Steam、下载与更新继续；在线游戏可能断线）。代理确认冻结期间（`game-frozen`/`game-thawed`）窗口变暗并显示“游戏已暂停 · 点按以继续”卡片与标题“— 已暂停”；点按窗口恢复游戏且不传给客户机；崩溃报告（`--no-crash-reports`，见下）；**启动时检查更新**（默认开，见“更新检查”）；帧统计日志（`--perf-stats`）；**在桌面模式中使用 Mac 的键盘布局**（默认开，见“桌面模式”） | 启动时全屏；**使用 Mac 的时区和时钟格式**（默认开，见上） |
 | 显示 | 客户机跟随窗口大小；窗口右上角 Apple Metal 性能 HUD（Ctrl+Cmd+P，显示菜单）；**MetalFX 超分辨率**（默认关）：窗口像素多于客户机时（Retina 屏 2 倍、缩放或全屏窗口），Apple MetalFX 空间放大把客户机画面放大到窗口像素尺寸，而非线性 / 最近邻缩放；跑在启动器中的客户机帧上，对所有游戏与 Steam UI 有效 | 物理尺寸来源（屏幕自动 / DPI / 毫米——`--dpi`、`--display-mm`），刷新率（`--refresh`），窗口大小（`--display`）：1280 × 800（Steam Deck）到 3840 × 2160 的标准分辨率（超出显示器的标注“超出当前屏幕尺寸”；窗口照旧缩小），“适应屏幕”（按显示器取最大，每次启动重算）或“自定…”（宽 × 高输入）；**Retina 分辨率**（可选，默认关）：客户机显示器获得屏幕像素密度（窗口点数 × 启动时屏幕 backing scale，每边不超过 4094 px 者降档），EDID 物理尺寸不变，SteamOS 把 UI 放大到同样尺寸、文字锐利——但游戏要画 4 倍像素，每帧拷贝大 4 倍；更推荐：Retina 分辨率关 + MetalFX 超分辨率（Retina 屏 2 倍放大） |
 | 鼠标 | 游戏中自动捕获；游戏列表（名取自 `appmanifest_<appid>.acf`，使用默认/自动/关闭、忘记此游戏） | — |
 | 控制器 | 哪个物理控制器（GameController）驱动虚拟手柄（首个已连接或自选），SteamOS 是否获得手柄及呈现为何种（`--no-gamepad`、`--pad`，见“控制器”），DualSense 是否按本身直通，其余控制器是否成为玩家 2–4，A/B 与 X/Y 互换，摇杆死区，实时输入测试 | — |
@@ -333,6 +333,8 @@ SteamVR，虚拟机中已屏蔽），层将其替换：`plasma-session.target` �
 （`/usr/lib/steamac/nested-desktop`，如 Valve 的 `steamos-nested-desktop`），按显示尺寸，gamescope
 1:1 显示。`gamescope-onready` 等该服务：Plasma 退出即会话结束，SDDM 重新登录。Plasma 有独立运行时目录与 D-Bus 会话总线；层的
 `steamosctl` 垫片（`/usr/lib/steamac/desktop-bin`，其 PATH 首位）把返回游戏模式等 SteamOS 命令发往外部会话总线，由 steamos-manager 执行。桌面 Steam 自启动（`/usr/lib/steamac/desktop-xdg/autostart/steam.desktop`）保留启动器所选客户端，而非原生 `-deckard`（Frame 客户端），否则每次切换都下载另一客户端。进度代理上报 `focus desktop <w>x<h>`（Plasma 窗口）：启动器保持相对指针，按 gamescope 缩放映射到该窗口；直启桌面模式（`steamos-session-select plasma-persistent`）在桌面就绪时上报 `ready`。
+
+**键盘布局。** 开启设置 > 通用 > **在桌面模式中使用 Mac 的键盘布局**（默认开，立即生效）后，桌面模式使用 Mac 上启用的键盘布局（按输入法菜单顺序），并随 Mac 的输入法切换（地球仪键、Control-空格）。启动器把每个布局映射为 XKB 布局（`com.apple.keylayout.Russian` → `ru(mac)`、`RussianWin` → `ru(winkeys)`、`German` → `de(mac)` 等；否则按输入源的首个语言，再否则为 `us`；输入法按其输入所用的布局计），并在每次切换以及桌面模式获得焦点时（之后 1.5、4、8 秒再各发一次：Plasma 启动时会在 KWin 接受我们的布局后再选回其第一个布局）经 `fx.progress` 发送 `keyboard-layout <当前索引> <布局(变体)>…`。代理运行 `/usr/lib/steamac/desktop-keyboard`（只处理最新请求，不阻塞）：列表不同时写入 Plasma 的 `kxkbrc`，让 KWin 重新加载（`org.kde.keyboard` `/Layouts` 上的 `reloadConfig`），并在嵌套会话总线上选中当前布局（`org.kde.KeyboardLayouts.setLayout`），该总线地址由 `nested-desktop` 写入 `nested_plasma/steamac-session-bus`。用地球仪键切换后，macOS 的输入源通知常常晚 0.55–0.85 秒，因此启动器作为活动应用时每 30 ms 轮询当前布局（每次 12 µs）：Plasma 中的布局约 0.1 秒内切换。按键仍是 Mac 的物理按键（evdev 键码），输入什么由布局决定。游戏模式保持其布局。
 
 Flatpak 应用（Discover）跑在 bubblewrap 中，在用户命名空间挂载自有 procfs。内核仅当挂载命名空间中有完全可见的 procfs 才允许，而 initramfs 把合成 `/proc/cmdline` 覆盖了真实文件；因此它还在
 `/run/steamac/proc` 挂载一份 untouched procfs（`nosuid,nodev,noexec`）。没有它每个 Flatpak 应用都以 `bwrap: Can't mount
