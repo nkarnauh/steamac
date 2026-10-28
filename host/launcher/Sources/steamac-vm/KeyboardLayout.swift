@@ -34,9 +34,14 @@ final class KeyboardLayoutSync {
         }
     }
 
-    /// Desktop Mode got the focus: its Plasma may have just started.
+    /// Desktop Mode got the focus: its Plasma may have just started. KWin takes the layout at
+    /// once, but Plasma's startup selects its first layout again a moment later: send it again
+    /// while Plasma settles.
     func desktopFocused() {
         push(force: true)
+        for delay in [1.5, 4, 8] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.push(force: true) }
+        }
     }
 
     private func push(force: Bool) {
