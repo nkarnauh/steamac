@@ -262,7 +262,7 @@ over saved values, but only for that launch: the field displays “overridden by
 
 | Tab | Applies now | On next start |
 |---|---|---|
-| General | boot/shutdown overlay; “Still working…” indicator on GPU idle; “When FX Steam Launcher is in the background”: **Mute sound** (on by default: `krun_snd_set_volume(…, mute)` with a gradual ~150 ms fade-out; volume is restored when returning to the window) and **Pause the game** (off by default: the guest agent freezes only the game in focus — `systemctl --user freeze app-steam-app<appid>-*.scope`, cgroup v2; Steam, downloads, and updates continue running; online games may disconnect). While the agent confirms the freeze (`game-frozen`/`game-thawed`), the window is dimmed, with a “Game paused · Click to resume” card and “— paused” in the title; clicking the window resumes the game and is not passed to the guest; crash reports (`--no-crash-reports`, see below); **Check for updates at startup** (on by default, see “Update check”); frame statistics logging (`--perf-stats`) | full screen at startup; **Use the Mac's time zone and clock format** (on by default, see above) |
+| General | boot/shutdown overlay; “Still working…” indicator on GPU idle; “When FX Steam Launcher is in the background”: **Mute sound** (on by default: `krun_snd_set_volume(…, mute)` with a gradual ~150 ms fade-out; volume is restored when returning to the window) and **Pause the game** (off by default: the guest agent freezes only the game in focus — `systemctl --user freeze app-steam-app<appid>-*.scope`, cgroup v2; Steam, downloads, and updates continue running; online games may disconnect). While the agent confirms the freeze (`game-frozen`/`game-thawed`), the window is dimmed, with a “Game paused · Click to resume” card and “— paused” in the title; clicking the window resumes the game and is not passed to the guest; crash reports (`--no-crash-reports`, see below); **Check for updates at startup** (on by default, see “Update check”); frame statistics logging (`--perf-stats`); **Use the Mac's keyboard layouts in Desktop Mode** (on by default, see “Desktop Mode”) | full screen at startup; **Use the Mac's time zone and clock format** (on by default, see above) |
 | Display | guest follows window size; Apple's Metal Performance HUD in the upper-right corner of the window (Ctrl+Cmd+P, View → Show Metal Performance HUD); **MetalFX super resolution** (off by default): Apple's MetalFX spatial upscaler scales the guest picture to the window's pixel size whenever the window has more pixels than the guest (2× on Retina screens, scaled or fullscreen windows) instead of linear / nearest scaling; it runs on the guest frame in the launcher, so it works for every game and the Steam UI | physical size source (auto from display / DPI / mm — `--dpi`, `--display-mm`), refresh rate (`--refresh`), window size (`--display`): standard resolutions from 1280 × 800 (Steam Deck) to 3840 × 2160 (those that do not fit on the display are marked “larger than this screen”; the window is shrunk as before), “Fit to screen” (largest size for the display, recalculated on every launch), or “Custom…” (W × H fields); **Retina resolution** (optional, off by default): the guest display gets the screen's pixel density (window points × the screen's backing scale, taken at boot; the scale is lowered so no side exceeds 4094 px) at the same EDID physical size, so SteamOS scales its UI up to the same size with sharp text — but games draw 4× the pixels and each frame copy is 4× larger; recommended instead: Retina resolution off + MetalFX super resolution (a 2× upscale on Retina screens) |
 | Mouse | auto-capture in games; game list (name from `appmanifest_<appid>.acf`, Default/Auto/Off, remove) | — |
 | Controller | which physical controller (GameController) drives the virtual pad (first connected or selected), whether SteamOS gets a pad and what it appears as (`--no-gamepad`, `--pad`, see “Controller”), whether a DualSense is passed through as itself, whether further controllers are players 2–4, swap A/B and X/Y, stick dead zone, live input test | — |
@@ -420,6 +420,23 @@ launcher instead of the stock `-deckard` (Frame client), which would download th
 every switch. The progress agent reports `focus desktop <w>x<h>` (the Plasma window): the launcher
 keeps the relative pointer and maps it onto that window as gamescope scales it, and a boot straight
 into Desktop Mode (`steamos-session-select plasma-persistent`) reports `ready` when the desktop is up.
+
+**Keyboard layouts.** With Settings > General **Use the Mac's keyboard layouts in Desktop Mode** (on
+by default, applies now), Desktop Mode has the keyboard layouts enabled on the Mac, in the Input
+menu's order, and switches with the Mac's input source (Globe key, Control-Space). The launcher maps
+each to an XKB layout (`com.apple.keylayout.Russian` → `ru(mac)`, `RussianWin` → `ru(winkeys)`,
+`German` → `de(mac)`, …; otherwise the source's first language, else `us`; an input method counts as
+the layout it types with) and sends `keyboard-layout <active index> <layout(variant)>…` over
+`fx.progress` on every change and whenever Desktop Mode gets the focus, again 1.5, 4 and 8 s later
+(Plasma's startup selects its first layout after KWin took ours). The agent runs
+`/usr/lib/steamac/desktop-keyboard` (latest request only, never blocking): it writes the list to
+Plasma's `kxkbrc` when it differs, has KWin reload it (`reloadConfig` on `org.kde.keyboard`
+`/Layouts`) and selects the active one (`org.kde.KeyboardLayouts.setLayout`) on the nested session's
+bus, whose address `nested-desktop` writes to `nested_plasma/steamac-session-bus`. macOS often posts
+its input source notification 0.55–0.85 s after a Globe-key switch, so while the launcher is the
+active app it polls the current layout every 30 ms (12 µs a call): the layout changes in Plasma
+within about 0.1 s. The keys stay the Mac's physical keys (evdev codes); the layout decides what they
+type. Gaming mode keeps its layout.
 
 Flatpak apps (Discover) run in bubblewrap, which mounts its own procfs in a user namespace. The kernel
 allows that only while some procfs in the mount namespace is fully visible, and the initramfs binds

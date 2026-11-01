@@ -1,0 +1,110 @@
+#!/usr/bin/python3
+"""Desktop Mode keyboard layouts follow the Mac's input sources.
+
+    desktop-keyboard <active index> <layout[(variant)]>...
+
+The progress agent runs it on every `keyboard-layout` request of the launcher
+(the Mac's enabled keyboard layouts as XKB layouts, in macOS's order, and the
+one selected now). It writes the list to Plasma's kxkbrc when it differs, has
+KWin reload it (org.kde.keyboard reloadConfig) and selects the active layout
+(org.kde.KeyboardLayouts.setLayout), on the nested Plasma session's own bus
+(nested-desktop writes its address to $XDG_RUNTIME_DIR/nested_plasma/
+steamac-session-bus). Without a running desktop it only exits: the launcher
+sends the layouts again when Desktop Mode gets the focus.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+SPEC = re.compile(r"^([a-z]{2,3})(?:\(([A-Za-z0-9_]+)\))?$")
+
+
+def busctl(addr, *args):
+    return subprocess.run(["busctl", "--address=" + addr, *args],
+                          capture_output=True, text=True, timeout=5)
+
+
+def kwin_layouts(addr):
+    """[(layout, display name, long name)] KWin uses now, None while org.kde.keyboard is
+    not up. The variant is not in it: the long name tells it ("Russian (Macintosh)")."""
+    r = busctl(addr, "--json=short", "call", "org.kde.keyboard", "/Layouts",
+               "org.kde.KeyboardLayouts", "getLayoutsList")
+    if r.returncode != 0:
+        return None
+    try:
+        return [tuple(l) for l in json.loads(r.stdout)["data"][0]]
+    except (ValueError, KeyError, IndexError, TypeError):
+        return None
+
+
+def config(key):
+    r = subprocess.run(["kreadconfig6", "--file", "kxkbrc", "--group", "Layout", "--key", key],
+                       capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def main(argv):
+    if len(argv) < 3 or not argv[1].isdigit():
+        print("usage: desktop-keyboard <active index> <layout[(variant)]>...", file=sys.stderr)
+        return 2
+    index = int(argv[1])
+    wanted = []
+    for spec in argv[2:]:
+        m = SPEC.match(spec)
+        if not m:
+            print(f"desktop-keyboard: bad layout {spec!r}", file=sys.stderr)
+            return 2
+        wanted.append((m.group(1), m.group(2) or ""))
+    if index >= len(wanted):
+        print(f"desktop-keyboard: index {index} beyond {len(wanted)} layouts", file=sys.stderr)
+        return 2
+
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    try:
+        with open(os.path.join(runtime, "nested_plasma", "steamac-session-bus")) as f:
+            addr = f.read().strip()
+    except OSError:
+        return 0  # no Desktop Mode now
+    if not addr:
+        return 0
+
+    layouts = ",".join(l for l, _ in wanted)
+    variants = ",".join(v for _, v in wanted)
+    before = None
+    if (config("Use") != "true" or config("LayoutList") != layouts
+            or config("VariantList") != variants):
+        before = kwin_layouts(addr)
+        for key, value, kind in (("Use", "true", "bool"), ("LayoutList", layouts, None),
+                                 ("VariantList", variants, None)):
+            cmd = ["kwriteconfig6", "--file", "kxkbrc", "--group", "Layout", "--key", key]
+            if kind:
+                cmd += ["--type", kind]
+            subprocess.run(cmd + [value], check=True)
+        busctl(addr, "emit", "/Layouts", "org.kde.keyboard", "reloadConfig")
+        print(f"desktop-keyboard: layouts {layouts} ({variants})", file=sys.stderr)
+
+    # KWin registers org.kde.keyboard shortly after Plasma starts and applies a
+    # reloaded list asynchronously: select the layout once it has the list (and,
+    # after a reload, once its list changed: a new variant keeps the codes).
+    codes = [l for l, _ in wanted]
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        now = kwin_layouts(addr)
+        if (now is not None and [l[0] for l in now] == codes
+                and (before is None or now != before or time.monotonic() > deadline - 13)):
+            r = busctl(addr, "call", "org.kde.keyboard", "/Layouts",
+                       "org.kde.KeyboardLayouts", "setLayout", "u", str(index))
+            if r.returncode == 0:
+                return 0
+            print(f"desktop-keyboard: setLayout: {r.stderr.strip()}", file=sys.stderr)
+            return 1
+        time.sleep(0.2)
+    print(f"desktop-keyboard: KWin has {kwin_layouts(addr)}, not {codes}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

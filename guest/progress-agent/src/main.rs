@@ -108,6 +108,7 @@ mod uhid;
 mod freeze;
 mod games;
 mod profiles;
+mod keyboard;
 
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
@@ -334,6 +335,7 @@ fn serve_host(port: &mut Port, collector: &mut collect::Collector, freezer: &mut
             },
             "thaw-game" => freezer.thaw("launcher active again"),
             "still-background" => freezer.keepalive(),
+            "keyboard-layout" => keyboard::request(arg),
             "" => {}
             _ => eprintln!("fx-progress: ignoring unknown host request {cmd:?}"),
         }

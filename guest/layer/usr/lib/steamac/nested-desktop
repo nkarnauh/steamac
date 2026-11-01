@@ -61,4 +61,7 @@ export XDG_RUNTIME_DIR=$nested
 export PATH=/usr/lib/steamac/desktop-bin:$PATH
 /usr/lib/steamac/mac-clock-format || true
 echo "steamac: Plasma desktop ${size} on $DISPLAY"
-dbus-run-session startplasma-wayland
+# The session bus address for /usr/lib/steamac/desktop-keyboard (run by the progress agent,
+# which lives on the outer bus).
+# shellcheck disable=SC2016
+dbus-run-session sh -c 'printf "%s\n" "$DBUS_SESSION_BUS_ADDRESS" > "$XDG_RUNTIME_DIR/steamac-session-bus"; exec startplasma-wayland'
