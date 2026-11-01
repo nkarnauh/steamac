@@ -81,6 +81,15 @@ background processing of Vulkan shaders）。
 启动器 1.4 把两项都关了（`"DisableShaderCache" "1"`、
 `"EnableShaderBackgroundProcessing" "0"`）；更新后首次启动 Steam 时，脚本一次性把两项改回开启，但仅当两处仍恰好是这两个值时。
 
+虚拟机中 Steam 空闲屏保（游戏模式下 设置 → 显示 → 屏幕保护程序）默认关闭。数分钟无输入后，Steam 会把
+`Screensaver_uid<n>` 窗口放到正在运行的游戏前面，gamescope 把焦点移给它，之后的点击都进入 Steam，直到按
+Escape。启动器的鼠标、数位板与键盘会重置 Steam 的计时，但长时间停在加载画面的游戏或 VR 中的游戏（头显输入
+不会到达 Steam）对 Steam 而言就是空闲；macOS 有自己的屏保与显示器睡眠。Steam 启动前，
+`/usr/lib/steamac/steam-idle-screensaver`（`steam.service` 的 ExecStartPre）在缺失时写入
+`"IdleScreensaverACSeconds" "0"` 与 `"IdleScreensaverBatterySeconds" "0"`（`config.vdf` 中的
+`InstallConfigStore/Software/Valve/Steam/System`；0 = 从不），每个 Steam 安装只写一次（标记
+`config/steamac-idle-screensaver`），因此之后在 Steam 设置中选择的屏保时间会被保留。
+
 游戏需要驱动提供的环境变量是默认值，而不是代码：`/usr/lib/steamac/steam-title-defaults`（同样是
 `steam.service` 的 ExecStartPre）在游戏的 Steam 启动选项（`%command%`）前加上所需的 `VAR=value`。
 目前只有一项：Dragon's Dogma 2（2054970）要求 D3D 功能级别 12_1，vkd3d-proton 根据 ROV 和
@@ -879,7 +888,7 @@ Worker URL 填入 `host/launcher/Info.plist`（`SteamacGameStatsURL`）与 `docs
 | `guest/kernel/` | Linux 7.2.9，全编入，4K 页，16K blob 节点对齐，FEX 用 Apple TSO；直通 DualSense 用的 uhid、hidraw 与 `hid-playstation`（含其所需 LED 类） |
 | `guest/mesa/` | 来自锁定的 Mesa：Venus ICD aarch64 版（Proton、gamescope、zink）与 x86_64/i386 版（FEX 图形提供方）；两者中替换原装的 zink GL 栈（libgallium、GLX/EGL/GBM），带 `guest/mesa/patches/` 中的回移植（Mesa 6abefa51：仅顶点布局变化时 zink 也重建管线；Metal 上的 Venus 缺 `VK_EXT_vertex_input_dynamic_state`，否则 GL 游戏会用过时的顶点格式绘制）；模拟游戏 x86_64 fault 上报器（`/usr/lib/steamac/x86_64/fault-report.so`） |
 | `guest/initramfs/` | 启动阶段 = “bootloader”：带尝试计数的 A/B 槽选择、partsets、`/etc` 与 `/usr` 覆盖；启动器创建磁盘的初始预配（`steamac.provision=1`：initramfs 中静态 mkfs.fat、mke2fs、btrfstune）；`steamac.ssh=0`——无 SSH 服务器；启动器配置载荷（`steamac.config=1`）——新 `steamos` 密码；`steamac.tz=`——`/etc/localtime` 中的 Mac 时区；Flatpak 沙箱用 untouched procfs `/run/steamac/proc` |
-| `guest/layer/` | `/usr` 上虚拟机层（只读 erofs）：文件化 `splctl`、RAUC 安全 post-install、`VARIANT_ID=steamdeck`、DRM 上 gamescope 会话、桌面模式（gamescope 嵌套 Plasma）、Frame 硬件服务屏蔽、`fx-progress-agent` 进度代理（Rust，`guest/progress-agent/`，`fx.progress` virtio-console 端口）与其 root 服务（`fx.clock`、`fx.sleep`、`fx.pad` 上 uinput 或 uhid 手柄）、短关机超时、二维码 Steam 登录模式（无记住账号时用 Steam Deck 客户端）、可选 Steam 客户端分支（`/etc/steamac/steam-client-branch`）、Steam Shader Pre-Caching 默认关闭（`steam-shader-defaults`）、Steam 空闲屏保默认关闭（`steam-idle-screensaver`） |
+| `guest/layer/` | `/usr` 上虚拟机层（只读 erofs）：文件化 `splctl`、RAUC 安全 post-install、`VARIANT_ID=steamdeck`、DRM 上 gamescope 会话、桌面模式（gamescope 嵌套 Plasma）、Frame 硬件服务屏蔽、`fx-progress-agent` 进度代理（Rust，`guest/progress-agent/`，`fx.progress` virtio-console 端口）与其 root 服务（`fx.clock`、`fx.sleep`、`fx.pad` 上 uinput 或 uhid 手柄）、短关机超时、二维码 Steam 登录模式（无记住账号时用 Steam Deck 客户端）、可选 Steam 客户端分支（`/etc/steamac/steam-client-branch`）、Steam 着色器后台处理默认开启（`steam-shader-defaults`）、Steam 空闲屏保默认关闭（`steam-idle-screensaver`） |
 | `scripts/` | 构建 `work/out/steamos.img`：Valve 分区布局的 GPT（esp、efi-A/B、rootfs-A/B、var-A/B、home）；`scripts/test/provision-test-disk.sh`——对照 Docker 磁盘的预配开发测试；`scripts/test/vkd3d-tiled.sh`——在临时虚拟机中端到端检查 D3D12 平铺资源与功能级别（Proton 11.0 的 vkd3d-proton 测试、`d3d12-caps`、`vk-minmax`） |
 
 MoltenVK 还修复空 SPIR-V 块中 discard 的 fragment 辅助函数

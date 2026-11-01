@@ -82,6 +82,17 @@ settings stays. Launcher 1.4 shipped both settings off (`"DisableShaderCache" "1
 `"EnableShaderBackgroundProcessing" "0"`); on the first Steam start after updating, the script turns
 both back on once, but only if both are still exactly those values.
 
+Steam's idle screensaver (Settings → Display → Screensaver in Game Mode) is off in the VM. After a
+few minutes without input Steam puts its `Screensaver_uid<n>` window in front of a running game,
+gamescope moves focus to it and the next clicks land in Steam until Escape. The launcher's mouse,
+tablet and keyboard reset Steam's timer, but a game left alone on a long loading screen or played in
+VR (headset input never reaches Steam) is idle to Steam; macOS keeps its own screensaver and display
+sleep. Before Steam starts, `/usr/lib/steamac/steam-idle-screensaver` (ExecStartPre of
+`steam.service`) writes `"IdleScreensaverACSeconds" "0"` and `"IdleScreensaverBatterySeconds" "0"`
+(`InstallConfigStore/Software/Valve/Steam/System` in `config.vdf`; 0 = never) where they are
+missing, once per Steam installation (marker `config/steamac-idle-screensaver`), so a screensaver
+timeout chosen later in Steam's settings stays.
+
 Per-title environment that a game needs from the driver it runs on is a default, not code:
 `/usr/lib/steamac/steam-title-defaults` (also an ExecStartPre of `steam.service`) puts the required
 `VAR=value` words in front of a title's Steam launch options (`%command%`). It ships one entry:
@@ -1191,7 +1202,7 @@ then it closes on its own; `STEAMAC_REPORT_TEST_SEND=1` also sends a test report
 | `guest/kernel/` | Linux 7.2.9, everything built in, 4K pages, 16K blob-node alignment, Apple TSO for FEX; uhid, hidraw and `hid-playstation` (with the LED classes it needs) for the passed-through DualSense |
 | `guest/mesa/` | From the pinned Mesa: Venus ICD for aarch64 (Proton, gamescope, zink) and x86_64/i386 (FEX graphics provider); zink GL stack (libgallium, GLX/EGL/GBM) over the stock one in both, with backports in `guest/mesa/patches/` (Mesa 6abefa51: zink rebuilds the pipeline when only the vertex layout changes; without `VK_EXT_vertex_input_dynamic_state`, which Venus on Metal lacks, GL games otherwise draw with stale vertex formats); x86_64 fault reporter for emulated games (`/usr/lib/steamac/x86_64/fault-report.so`) |
 | `guest/initramfs/` | boot stage = “bootloader”: A/B slot selection with attempt counter, partsets, overlays for `/etc` and `/usr`; initial provisioning of the launcher-created disk (`steamac.provision=1`: static mkfs.fat, mke2fs, btrfstune in initramfs); `steamac.ssh=0` — no SSH server; launcher config payload (`steamac.config=1`) — new `steamos` password; `steamac.tz=` — the Mac's time zone in `/etc/localtime`; untouched procfs at `/run/steamac/proc` for Flatpak sandboxes |
-| `guest/layer/` | VM layer over `/usr` (read-only erofs): file-based `splctl`, safe post-install for RAUC, `VARIANT_ID=steamdeck`, gamescope session on DRM, Desktop Mode (Plasma nested in gamescope), masks for Frame hardware services, `fx-progress-agent` progress agent (Rust, `guest/progress-agent/`, `fx.progress` virtio-console port) and its root services (`fx.clock`, `fx.sleep`, the uinput or uhid gamepad on `fx.pad`), short shutdown timeouts, QR-code Steam sign-in mode (Steam Deck client, while there is no remembered account), optional Steam client branch (`/etc/steamac/steam-client-branch`), Steam Shader Pre-Caching disabled by default (`steam-shader-defaults`), Steam's idle screensaver off by default (`steam-idle-screensaver`) |
+| `guest/layer/` | VM layer over `/usr` (read-only erofs): file-based `splctl`, safe post-install for RAUC, `VARIANT_ID=steamdeck`, gamescope session on DRM, Desktop Mode (Plasma nested in gamescope), masks for Frame hardware services, `fx-progress-agent` progress agent (Rust, `guest/progress-agent/`, `fx.progress` virtio-console port) and its root services (`fx.clock`, `fx.sleep`, the uinput or uhid gamepad on `fx.pad`), short shutdown timeouts, QR-code Steam sign-in mode (Steam Deck client, while there is no remembered account), optional Steam client branch (`/etc/steamac/steam-client-branch`), Steam's background shader processing on by default (`steam-shader-defaults`), Steam's idle screensaver off by default (`steam-idle-screensaver`) |
 | `scripts/` | build of `work/out/steamos.img`: GPT with Valve's partition layout (esp, efi-A/B, rootfs-A/B, var-A/B, home); `scripts/test/provision-test-disk.sh` — dev test of provisioning against a disk from Docker; `scripts/test/vkd3d-tiled.sh` — dev end-to-end check of D3D12 tiled resources and the feature level (vkd3d-proton tests of Proton 11.0, `d3d12-caps`, `vk-minmax`) in a throwaway VM |
 
 MoltenVK also fixes fragment helpers that discard from an otherwise empty SPIR-V block

@@ -82,6 +82,17 @@ Pre-caching (и/или Allow background processing of Vulkan shaders).
 `"EnableShaderBackgroundProcessing" "0"`); при первом старте Steam после обновления скрипт один раз
 включает обе обратно, но только если там всё ещё ровно эти значения.
 
+Заставка Steam при бездействии (Settings → Display → Screensaver в игровом режиме) в ВМ выключена.
+Через несколько минут без ввода Steam ставит своё окно `Screensaver_uid<n>` поверх запущенной игры,
+gamescope переводит на него фокус, и следующие клики попадают в Steam, пока не нажать Escape. Мышь,
+планшет и клавиатура лаунчера сбрасывают таймер Steam, но игра, оставленная на долгом экране
+загрузки или запущенная в VR (ввод шлема до Steam не доходит), для Steam простаивает; у macOS свои
+заставка и сон дисплея. Перед стартом Steam `/usr/lib/steamac/steam-idle-screensaver` (ExecStartPre
+`steam.service`) пишет `"IdleScreensaverACSeconds" "0"` и `"IdleScreensaverBatterySeconds" "0"`
+(`InstallConfigStore/Software/Valve/Steam/System` в `config.vdf`; 0 = никогда), если их там нет, —
+один раз на установку Steam (метка `config/steamac-idle-screensaver`), поэтому время заставки,
+выбранное потом в настройках Steam, сохраняется.
+
 Окружение, которое игре нужно от драйвера, — значение по умолчанию, а не код:
 `/usr/lib/steamac/steam-title-defaults` (тоже ExecStartPre `steam.service`) ставит нужные слова
 `VAR=value` перед параметрами запуска игры в Steam (`%command%`). Пока запись одна: Dragon's Dogma 2
