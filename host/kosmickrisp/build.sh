@@ -262,6 +262,11 @@
 #              without a Vulkan debug messenger or MESA_VK_LOG: the fixed-driver repro showed that vk_errorf
 #              alone is silent by default. This distinguishes the possible zero-slice Vulkan inputs in the
 #              next guest report instead of attributing one without evidence.
+#   0071       steamac: compatible-format image copies into compressed mip tails clamp the expanded
+#              destination extent to the mip edge (RG32_UINT -> 1x1 BC1 expanded to 4x4 and aborted
+#              Metal API validation in copyFromBuffer:toTexture: on M1 Max). STEAMAC-5E/5F has that
+#              CmdCopyImage2 fallback stack, but its resource formats were not captured. Repro:
+#              host/moltenvk/repro/sentry-image-copy.c compressed (1/2/4/8 BC1, every byte checked).
 #   0074       steamac: prioritize fault feedback and shader excerpts before innocent victims and successful
 #              compositor records in bounded GPU-failure diagnostics (STEAMAC-G); no submission changes.
 #
@@ -454,6 +459,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0065 = steamac: reject empty/out-of-bounds image view ranges before Metal, with original Vulkan arguments logged"
 	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"
+	echo "  0071 = steamac: clamp expanded compressed-copy destination extents to the mip edge"
 	echo "  0074 = steamac: prioritize GPU fault feedback before victims and successful compositor records"
 	echo
 	echo "Known gaps (host/moltenvk/repro/run.sh): transform feedback with strip geometry shaders and"
