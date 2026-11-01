@@ -252,6 +252,11 @@
 #              zero-slice Metal abort; valid remaining-layer and 3D-slice views do not. Reports lack the Vulkan
 #              arguments, so rejected views log the original range, extent, type, flags, usage and tiling.
 #              Repro: image_views.c (five valid controls, eight invalid cases including 0066's format case).
+#   0066       steamac: reject incompatible color texel-block sizes before Metal (STEAMAC-3 d7f4d319 and
+#              STEAMAC-62's 6C-associated event: a distinct RGBA8Unorm -> R8Unorm assertion, also at :1866).
+#              Depth/stencil and multi-planar aspect views keep their plane-format path; compressed block-texel
+#              aliases keep their equal block sizes. Rejections log both Vulkan formats, image flags and usage.
+#              Repro: image_views.c invalid-format-2d reproduces the exact assertion on M1 Max.
 #
 # Two meson builds: (1) the host compiler tools mesa_clc + vtn_bindgen2 against Homebrew LLVM
 # (shared) and SPIRV-LLVM-Translator, installed into work/build/host-kosmickrisp/clc; (2) the driver
@@ -440,6 +445,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0059 = steamac: zero texel-buffer widths are null; oversized views clamp to Metal's per-format capacity after alignment"
 	echo "  0061 = steamac: buffer-backed texture-buffer views inherit buffer residency, avoiding IOGPU's per-set entry limit"
 	echo "  0065 = steamac: reject empty/out-of-bounds image view ranges before Metal, with original Vulkan arguments logged"
+	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo
 	echo "Known gaps (host/moltenvk/repro/run.sh): transform feedback with strip geometry shaders and"
 	echo "the overflow counter (draft !44928)."
