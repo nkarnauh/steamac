@@ -7,8 +7,11 @@ enum GameLayerSelfTest {
     static func run() -> Never {
         let parent = CAMetalLayer()
         let game = CAMetalLayer(), other = CALayer()
+        let cursor = CALayer()
+        cursor.name = VMView.cursorLayerName
         parent.addSublayer(game)
         parent.addSublayer(other)
+        parent.addSublayer(cursor)
         var failures = 0
         func check(_ ok: Bool, _ what: String) {
             if !ok { failures += 1; log("selftest-game-layers: FAIL \(what)") }
@@ -16,6 +19,7 @@ enum GameLayerSelfTest {
         VMView.applyGameLayers(visible: false, in: parent)
         check(game.isHidden, "game layer visible while the guest shows Steam")
         check(!other.isHidden && !parent.isHidden, "non-game layers hidden")
+        check(!cursor.isHidden, "cursor overlay hidden with no game")
         check(game.animationKeys()?.isEmpty ?? true, "visibility change animated")
         VMView.applyGameLayers(visible: true, in: parent)
         check(!game.isHidden, "game layer hidden while the game has focus")

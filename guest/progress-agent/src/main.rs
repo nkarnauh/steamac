@@ -35,6 +35,9 @@
 //!   profiles-ok <sha256> applied|pending  exact received JSON digest; pending needs a Steam restart
 //!   game-exit <appid>             last Steam scope disappeared (games.rs);
 //!                                 app ids 0 and 769 are excluded from per-game statistics
+//!   cursor 0|1                    the focused game's cursor visible (cursor.rs; DXMT path overlay)
+//!   cursor-image <w> <h> <xhot> <yhot> <base64>   the X cursor bitmap (BGRA), on change
+//!   cursor-pos <x> <y> <win_w> <win_h>           its position in the focused game's X window
 //!
 //! Host -> guest (same port): `collect-logs <id>`, served at any point of the
 //! lifecycle below (worker thread; the bundle goes out from the main loop);
@@ -97,6 +100,7 @@ mod clipx11;
 mod appname;
 mod codec;
 mod collect;
+mod cursor;
 mod focus;
 mod pad;
 mod port;
@@ -119,6 +123,8 @@ use ui::{Ui, UiState};
 
 const DEFAULT_PORT: &str = "/dev/virtio-ports/fx.progress";
 const TICK_MS: u64 = 200;
+/// Cursor poll interval while a game has the focus (the cursor overlay follows its position).
+const CURSOR_MS: u64 = 16;
 /// The UI window must stay on screen this long before `ready`.
 const SETTLE: Duration = Duration::from_millis(1500);
 /// "Verification complete" is followed within the same second by
@@ -468,6 +474,7 @@ fn main() {
     let mut collector = collect::Collector::new();
     let mut freezer = freeze::Freezer::new();
     let mut games = games::Games::new();
+    let mut cursor_state = cursor::Cursor::new();
     let profiles = profiles::Requests::new();
     let mut names = appname::Names::new(appname::steam_root(),
         format!("/tmp/.fx-progress-named-{}", unsafe { libc::getuid() }).into());
@@ -506,6 +513,7 @@ fn main() {
             serve_host(&mut rep.port, &mut collector, &mut freezer, &focus, &profiles);
             collector.pump(&mut rep.port);
             focus.pump(&mut rep.port, false, &mut names);
+            cursor_state.pump(&mut rep.port);
             if desktop_ready_pending && focus.desktop_shown() {
                 desktop_ready_pending = false;
                 rep.port.send("ready");
@@ -528,6 +536,8 @@ fn main() {
                 TICK_MS as i64
             } else if let Some(ms) = freezer.wait_ms() {
                 ms   // keepalive deadline while a game is frozen
+            } else if focus.game().is_some() && cursor_state.active() {
+                CURSOR_MS as i64   // follow the game cursor's position and visibility
             } else if focus.connected() {
                 -1
             } else {

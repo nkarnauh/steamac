@@ -9,10 +9,10 @@ use std::ffi::CString;
 use std::io;
 use std::time::{Duration, Instant};
 
-/// Upper bound for bytes waiting for the host. Progress messages are tiny; if
-/// the host stops reading this long, older messages are dropped (only the
-/// newest state matters to the overlay).
-const MAX_PENDING: usize = 16 * 1024;
+/// Upper bound for bytes waiting for the host. The X cursor bitmap is the
+/// largest message (a base64 line); if the host stops reading this long, older
+/// messages are dropped (only the newest state matters to the overlay).
+const MAX_PENDING: usize = 512 * 1024;
 
 pub struct Port {
     fd: libc::c_int,

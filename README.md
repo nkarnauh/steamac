@@ -816,6 +816,8 @@ draws and 4 passes 133 / 139 / 115 (DXMT stops at the display's 120 Hz, the Vulk
 Medians of three 20 s runs launched through Steam (DXMT: six over two boots); details on the site.
 DXMT's winemetal calls cross virtio-gpu to an
 executor **inside the VM process on the Mac**, which presents a `CAMetalLayer` in the VM view.
+That layer would cover the guest compositor's cursor; the launcher draws the game's own cursor above
+it instead (see “Cursor on the DXMT path” under “How it works”).
 D3D12 (vkd3d-proton) and native Vulkan remain on Venus; this path is for **D3D11/D3D10 only**, not D3D9.
 DXMT still has compatibility gaps, including **no stream output**; expect first-launch shader
 compilation and stutter rather than assuming Steam's Vulkan shader cache covers Metal.
@@ -1228,6 +1230,29 @@ then it closes on its own; `STEAMAC_REPORT_TEST_SEND=1` also sends a test report
 | `guest/initramfs/` | boot stage = “bootloader”: A/B slot selection with attempt counter, partsets, overlays for `/etc` and `/usr`; initial provisioning of the launcher-created disk (`steamac.provision=1`: static mkfs.fat, mke2fs, btrfstune in initramfs); `steamac.ssh=0` — no SSH server; launcher config payload (`steamac.config=1`) — new `steamos` password; `steamac.tz=` — the Mac's time zone in `/etc/localtime`; untouched procfs at `/run/steamac/proc` for Flatpak sandboxes |
 | `guest/layer/` | VM layer over `/usr` (read-only erofs): file-based `splctl`, safe post-install for RAUC, `VARIANT_ID=steamdeck`, gamescope session on DRM, Desktop Mode (Plasma nested in gamescope), masks for Frame hardware services, `fx-progress-agent` progress agent (Rust, `guest/progress-agent/`, `fx.progress` virtio-console port) and its root services (`fx.clock`, `fx.sleep`, the uinput or uhid gamepad on `fx.pad`), short shutdown timeouts, QR-code Steam sign-in mode (Steam Deck client, while there is no remembered account), optional Steam client branch (`/etc/steamac/steam-client-branch`), Steam's background shader processing on by default (`steam-shader-defaults`), Steam's idle screensaver off by default (`steam-idle-screensaver`) |
 | `scripts/` | build of `work/out/steamos.img`: GPT with Valve's partition layout (esp, efi-A/B, rootfs-A/B, var-A/B, home); `scripts/test/provision-test-disk.sh` — dev test of provisioning against a disk from Docker; `scripts/test/vkd3d-tiled.sh` — dev end-to-end check of D3D12 tiled resources and the feature level (vkd3d-proton tests of Proton 11.0, `d3d12-caps`, `vk-minmax`) in a throwaway VM |
+
+### Cursor on the DXMT path
+
+On wmtr, DXMT presents the game as a `CAMetalLayer` inside the VM process on the Mac. That layer is
+composited above the guest scanout, so the cursor drawn by the guest compositor is covered. The guest
+agent (`guest/progress-agent/src/cursor.rs`) finds the Xwayland display whose active window's `WM_CLASS`
+starts with `steam_app_` (any XFixes-capable display otherwise), follows the pointer with
+`QueryPointer` every 16 ms while a game has focus, fetches the bitmap with `XFixesGetCursorImage`
+every 50 ms, and sends only changes: `cursor 0|1`, `cursor-image <w> <h> <xhot> <yhot> <base64 BGRA>`,
+and `cursor-pos <x> <y> <win_w> <win_h>`. The position and size are in the focused game's X window
+client pixels, not the X root: a windowed game's root can be larger than its client area. A 1×1 or
+fully transparent cursor is hidden, as Wine uses for a game without a cursor.
+
+The launcher parses these in `Progress.swift` and forwards them through `Window.swift` to `VMView` in
+`Presenter.swift`, which owns a transparent `CALayer` named `steamac.cursor-overlay` at `zPosition`
+1000. It is shown only while a game layer is visible and the guest cursor is visible and its position
+is known; it is excluded from the game-layer and Metal HUD policies and re-attached if wmtr removes
+sublayers. The bitmap becomes a premultiplied-first `CGImage`. The layer maps the X window position
+into the active remoted game layer's displayed drawable rectangle (`drawableSize` aspect-fit into the
+layer, the same geometry wmtr gives that layer), not into the guest picture, so a game layer whose
+size or aspect differs from the guest scanout does not shift the cursor. The compositor does the
+scaling and alpha blending. This keeps the game visible and preserves the game's own cursor shape,
+hotspot, and visibility.
 
 MoltenVK also fixes fragment helpers that discard from an otherwise empty SPIR-V block
 (STEAMAC-1Q). `host/moltenvk/repro/msl_helpers.c` checks both direct and nested helpers:

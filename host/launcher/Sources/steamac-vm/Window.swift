@@ -370,6 +370,18 @@ final class WindowController: NSObject, NSWindowDelegate {
         let previousFocus = progress.onFocus
         progress.onFocus = { [weak self] f in previousFocus?(f); self?.guestFocusChanged(f) }
         progress.onFocusSurface = { [weak self] s in self?.guestSurfaceChanged(s) }
+        let previousCursor = progress.onCursorVisible
+        progress.onCursorVisible = { [weak self] v in previousCursor?(v); self?.view.guestCursorVisibility(v) }
+        let previousCursorImage = progress.onCursorImage
+        progress.onCursorImage = { [weak self] w, h, xhot, yhot, bgra in
+            previousCursorImage?(w, h, xhot, yhot, bgra)
+            self?.view.guestCursorImage(width: w, height: h, xhot: xhot, yhot: yhot, bgra: bgra)
+        }
+        let previousCursorPosition = progress.onCursorPosition
+        progress.onCursorPosition = { [weak self] x, y, w, h in
+            previousCursorPosition?(x, y, w, h)
+            self?.view.guestCursorPosition(x: x, y: y, windowWidth: w, windowHeight: h)
+        }
         let previousReady = progress.onReady
         progress.onReady = { [weak self] in previousReady?(); self?.overlay.hide() }
         let previousShutdown = progress.onShutdown
