@@ -262,6 +262,8 @@
 #              without a Vulkan debug messenger or MESA_VK_LOG: the fixed-driver repro showed that vk_errorf
 #              alone is silent by default. This distinguishes the possible zero-slice Vulkan inputs in the
 #              next guest report instead of attributing one without evidence.
+#   0074       steamac: prioritize fault feedback and shader excerpts before innocent victims and successful
+#              compositor records in bounded GPU-failure diagnostics (STEAMAC-G); no submission changes.
 #
 # Two meson builds: (1) the host compiler tools mesa_clc + vtn_bindgen2 against Homebrew LLVM
 # (shared) and SPIRV-LLVM-Translator, installed into work/build/host-kosmickrisp/clc; (2) the driver
@@ -452,6 +454,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0065 = steamac: reject empty/out-of-bounds image view ranges before Metal, with original Vulkan arguments logged"
 	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"
+	echo "  0074 = steamac: prioritize GPU fault feedback before victims and successful compositor records"
 	echo
 	echo "Known gaps (host/moltenvk/repro/run.sh): transform feedback with strip geometry shaders and"
 	echo "the overflow counter (draft !44928)."
