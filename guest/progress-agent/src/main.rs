@@ -35,6 +35,7 @@
 //!   profiles-ok <sha256> applied|pending  exact received JSON digest; pending needs a Steam restart
 //!   game-exit <appid>             last Steam scope disappeared (games.rs);
 //!                                 app ids 0 and 769 are excluded from per-game statistics
+//!   cursor-ready                  port opened; host resends its cursor-track policy
 //!   cursor 0|1                    the focused game's cursor visible (cursor.rs; DXMT path overlay)
 //!   cursor-image <w> <h> <xhot> <yhot> <base64>   the X cursor bitmap (BGRA), on change
 //!   cursor-pos <x> <y> <win_w> <win_h>           its position in the focused game's X window
@@ -44,7 +45,9 @@
 //! `freeze-game <appid>` / `thaw-game` / `still-background` (freeze.rs: pause
 //! the focused game while the launcher is in the background); `profiles <base64-json>`,
 //! `launch <appid>`, `restart-steam` (profiles.rs: serialized background worker);
-//! `keyboard-layout <index> <layout[(variant)]>...` (keyboard.rs: latest-only worker).
+//! `keyboard-layout <index> <layout[(variant)]>...` (keyboard.rs: latest-only worker);
+//! `cursor-track 1|0` enables/disables cursor X work (default off); enable also
+//! resynchronizes the full snapshot after the host/agent connection restarts.
 //!
 //! Lifecycle
 //!   1. port missing (older launcher) -> exit 0 quietly.
@@ -56,8 +59,8 @@
 //!      gamescope's focus (focus.rs).
 //!   3. `ready` is sent at most once per boot (marker in /tmp, keyed by
 //!      boot_id): a restarted session/agent goes straight to step 4.
-//!   4. Idle in ppoll(2) on the X connection and the heartbeat timerfd (no
-//!      polling, one wakeup a second): report focus changes (focus.rs; also
+//!   4. Idle in ppoll(2) on the X connections and the heartbeat timerfd (one
+//!      wakeup a second unless cursor tracking is enabled): report focus changes (focus.rs; also
 //!      once at start, after `ready` and after every X reconnect) and wait
 //!      for the shutdown:
 //!      SIGTERM -> classify (shutdown.rs, bounded ~1.5 s) -> `shutdown <kind>`
@@ -123,8 +126,6 @@ use ui::{Ui, UiState};
 
 const DEFAULT_PORT: &str = "/dev/virtio-ports/fx.progress";
 const TICK_MS: u64 = 200;
-/// Cursor poll interval while a game has the focus (the cursor overlay follows its position).
-const CURSOR_MS: u64 = 16;
 /// The UI window must stay on screen this long before `ready`.
 const SETTLE: Duration = Duration::from_millis(1500);
 /// "Verification complete" is followed within the same second by
@@ -327,9 +328,15 @@ fn ready_marker() -> String {
 
 /// Host -> guest requests on the port: `<command> [args]`, one per line,
 /// never blocking (each handler only starts work or answers right away).
-fn serve_host(port: &mut Port, collector: &mut collect::Collector, freezer: &mut freeze::Freezer, focus: &focus::Focus, profiles: &profiles::Requests) {
+fn serve_host(port: &mut Port, collector: &mut collect::Collector, freezer: &mut freeze::Freezer, focus: &focus::Focus, profiles: &profiles::Requests, cursor: &mut cursor::Cursor) {
     for line in port.read_lines() {
         let line = line.trim();
+        if let Some(enabled) = port::cursor_tracking(line) {
+            cursor.set_tracking(enabled);
+            // Hide old state until the new snapshot (also when a host reconnects).
+            port.send_quiet("cursor 0");
+            continue;
+        }
         let (cmd, arg) = line.split_once(' ').map_or((line, ""), |(c, a)| (c, a.trim()));
         match cmd {
             "collect-logs" => collector.request(arg, port),
@@ -363,6 +370,7 @@ fn report_boot(
     games: &mut games::Games,
     names: &mut appname::Names,
     profiles: &profiles::Requests,
+    cursor: &mut cursor::Cursor,
 ) {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/steamos".into());
     let log_path = std::env::var("FX_PROGRESS_STEAM_LOG")
@@ -419,9 +427,10 @@ fn report_boot(
             }
         }
         rep.port.flush();
-        serve_host(&mut rep.port, collector, freezer, focus, profiles);
+        serve_host(&mut rep.port, collector, freezer, focus, profiles, cursor);
         collector.pump(&mut rep.port);
         focus.pump(&mut rep.port, false, names);
+        cursor.pump(&mut rep.port);
         if let Some(hb) = heartbeat {
             if hb.pump(&mut rep.port) {
                 games.pump(Instant::now(), &mut rep.port, names);
@@ -431,7 +440,7 @@ fn report_boot(
             eprintln!("fx-progress: no Steam UI after {} min, stop reporting boot progress", GIVE_UP.as_secs() / 60);
             return;
         }
-        nap(TICK_MS);
+        nap(cursor.wait_ms().map_or(TICK_MS, |ms| TICK_MS.min(ms as u64)));
     }
 }
 
@@ -445,7 +454,7 @@ fn main() {
         _ => {}
     }
     let port_path = std::env::var("FX_PROGRESS_PORT").unwrap_or_else(|_| DEFAULT_PORT.into());
-    let port = match Port::open(&port_path) {
+    let mut port = match Port::open(&port_path) {
         Ok(p) => p,
         Err(e) => {
             // Older launcher without the port (or no permission): nothing to report to.
@@ -453,6 +462,8 @@ fn main() {
             return;
         }
     };
+    // Old hosts ignore this; new hosts resend their current cursor-track policy.
+    port.send_quiet("cursor-ready");
     install_signals();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/steamos".into());
     let steam_root = std::env::var("FX_PROGRESS_STEAM_ROOT").unwrap_or_else(|_| format!("{home}/.local/share/Steam"));
@@ -489,7 +500,7 @@ fn main() {
         rep.stage(Stage::Session, 100, "Session started");
         desktop_ready_pending = true;
     } else {
-        report_boot(&mut rep, &mut focus, heartbeat.as_ref(), &mut collector, &mut freezer, &mut games, &mut names, &profiles);
+        report_boot(&mut rep, &mut focus, heartbeat.as_ref(), &mut collector, &mut freezer, &mut games, &mut names, &profiles, &mut cursor_state);
     }
     // Once after `ready` (or at agent start on a later session): current focus.
     focus.pump(&mut rep.port, true, &mut names);
@@ -508,9 +519,10 @@ fn main() {
             libc::sigaddset(&mut block, sig);
         }
         libc::sigprocmask(libc::SIG_BLOCK, &block, &mut old);
+        let mut pfds = Vec::with_capacity(8);
         while !terminated() {
             rep.port.flush();
-            serve_host(&mut rep.port, &mut collector, &mut freezer, &focus, &profiles);
+            serve_host(&mut rep.port, &mut collector, &mut freezer, &focus, &profiles, &mut cursor_state);
             collector.pump(&mut rep.port);
             focus.pump(&mut rep.port, false, &mut names);
             cursor_state.pump(&mut rep.port);
@@ -525,24 +537,25 @@ fn main() {
                     games.pump(Instant::now(), &mut rep.port, &mut names);
                 }
             }
-            let mut pfds = [
+            pfds.clear();
+            pfds.extend_from_slice(&[
                 libc::pollfd { fd: focus.fd().unwrap_or(-1), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: heartbeat.as_ref().map_or(-1, |h| h.fd()), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: rep.port.read_fd().unwrap_or(-1), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: collector.wake_fd(), events: libc::POLLIN, revents: 0 },
                 libc::pollfd { fd: profiles.wake_fd(), events: libc::POLLIN, revents: 0 },
-            ];
-            let wait_ms: i64 = if rep.port.has_pending() {
-                TICK_MS as i64
-            } else if let Some(ms) = freezer.wait_ms() {
-                ms   // keepalive deadline while a game is frozen
-            } else if focus.game().is_some() && cursor_state.active() {
-                CURSOR_MS as i64   // follow the game cursor's position and visibility
-            } else if focus.connected() {
-                -1
-            } else {
-                1000
-            };
+            ]);
+            cursor_state.poll_fds(&mut pfds);
+            let mut wait_ms: i64 = if focus.connected() { -1 } else { 1000 };
+            for deadline in [
+                rep.port.has_pending().then_some(TICK_MS as i64),
+                freezer.wait_ms(),
+                cursor_state.wait_ms(),
+            ].into_iter().flatten() {
+                if wait_ms < 0 || deadline < wait_ms {
+                    wait_ms = deadline;
+                }
+            }
             let ts;
             let tsp = if wait_ms < 0 {
                 std::ptr::null()
@@ -556,6 +569,7 @@ fn main() {
             if pfds[2].revents & libc::POLLHUP != 0 {
                 eprintln!("fx-progress: host closed the port; no more host requests");
                 rep.port.stop_reading();
+                cursor_state.set_tracking(false);
             }
         }
         libc::sigprocmask(libc::SIG_SETMASK, &old, std::ptr::null_mut());

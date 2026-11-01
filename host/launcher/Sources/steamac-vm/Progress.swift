@@ -107,6 +107,8 @@ final class BootProgress {
     /// `game-start <appid>` / `game-mem <appid> <anon_kib> <guest_used_kib>` /
     /// `game-proton <appid> <version>` / `game-exit <appid>`.
     var onGameEvent: ((GuestGameEvent) -> Void)?
+    /// A freshly opened agent port needs the current tracking policy, even if focus did not change.
+    var onCursorReady: (() -> Void)?
     /// `cursor 0|1`: the focused game's cursor is visible in the guest (DXMT path overlay).
     var onCursorVisible: ((_ visible: Bool) -> Void)?
     /// `cursor-image <w> <h> <xhot> <yhot> <base64 BGRA>`: the X cursor bitmap, on change.
@@ -236,12 +238,14 @@ final class BootProgress {
         case "alive":
             guard parts.count >= 3, let ms = Int(parts[1]), let load = Double(parts[2]) else { return }
             onAlive?(ms, load)
+        case "cursor-ready":
+            onCursorReady?()
         case "cursor":
-            guard parts.count >= 2, let v = Int(parts[1]) else { return }
-            onCursorVisible?(v != 0)
+            guard parts.count == 2, ["0", "1"].contains(parts[1]) else { return }
+            onCursorVisible?(parts[1] == "1")
         case "cursor-image":
             let f = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard f.count >= 6, let w = Int(f[1]), let h = Int(f[2]), let xhot = Int(f[3]), let yhot = Int(f[4]),
+            guard f.count == 6, let w = Int(f[1]), let h = Int(f[2]), let xhot = Int(f[3]), let yhot = Int(f[4]),
                   w > 0, h > 0, w <= 256, h <= 256 else { return }
             let (area, areaOverflow) = w.multipliedReportingOverflow(by: h)
             let (bytes, bytesOverflow) = area.multipliedReportingOverflow(by: 4)
@@ -250,7 +254,7 @@ final class BootProgress {
             onCursorImage?(w, h, xhot, yhot, data)
         case "cursor-pos":
             let f = line.split(separator: " ", omittingEmptySubsequences: true)
-            guard f.count >= 5, let x = Int(f[1]), let y = Int(f[2]),
+            guard f.count == 5, let x = Int(f[1]), let y = Int(f[2]),
                   let w = Int(f[3]), let h = Int(f[4]), w > 0, h > 0 else { return }
             onCursorPosition?(x, y, w, h)
         case "profiles-ok":

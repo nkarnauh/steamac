@@ -574,9 +574,12 @@ d3d11bench 100 次绘制 + 16 次全屏通道为 44 / 50（Proton 10.0 + DXVK）
 133 / 139 / 115（DXMT 止于显示器 120 Hz，Vulkan 路径可超过）。经 Steam 启动的三次 20 秒运行取中位数
 （DXMT 取两次启动共六次）；详见网站。
 DXMT 的 winemetal 调用通过 virtio-gpu 到达 **Mac 上虚拟机进程内部**的执行器，
-由其在虚拟机视图内呈现 `CAMetalLayer`。D3D12（vkd3d-proton）和原生 Vulkan 仍走 Venus；
-此路径**仅支持 D3D11/D3D10**，不支持 D3D9。DXMT 仍有兼容性缺口，包括**不支持流输出
-（stream output）**；首次启动会编译着色器并可能卡顿，不能假定 Steam 的 Vulkan 着色器缓存覆盖 Metal。
+由其在虚拟机视图内呈现 `CAMetalLayer`。该图层会遮住客户机合成器的光标；启动器改为在其上绘制
+游戏自己的光标，尺寸与 gamescope 一致。跟踪由宿主控制，仅用于 DXMT：只有游戏焦点允许显示覆盖层，
+且实际 wmtr 图层已附加并可见时才运行，而非仅因开启“允许 DXMT”（见“如何工作”中的“DXMT 路径上的光标”）。
+D3D12（vkd3d-proton）和原生 Vulkan 仍走 Venus；此路径**仅支持 D3D11/D3D10**，不支持 D3D9。
+DXMT 仍有兼容性缺口，包括**不支持流输出（stream output）**；首次启动会编译着色器并可能卡顿，
+不能假定 Steam 的 Vulkan 着色器缓存覆盖 Metal。
 
 **安全：开启期间，客户机程序可以以您的用户权限在 Mac 上执行代码。**
 进程内执行器与 DXMT 使用宿主原始地址的协议并不是虚拟机安全边界。
@@ -892,6 +895,38 @@ Worker URL 填入 `host/launcher/Info.plist`（`SteamacGameStatsURL`）与 `docs
 | `guest/initramfs/` | 启动阶段 = “bootloader”：带尝试计数的 A/B 槽选择、partsets、`/etc` 与 `/usr` 覆盖；启动器创建磁盘的初始预配（`steamac.provision=1`：initramfs 中静态 mkfs.fat、mke2fs、btrfstune）；`steamac.ssh=0`——无 SSH 服务器；启动器配置载荷（`steamac.config=1`）——新 `steamos` 密码；`steamac.tz=`——`/etc/localtime` 中的 Mac 时区；Flatpak 沙箱用 untouched procfs `/run/steamac/proc` |
 | `guest/layer/` | `/usr` 上虚拟机层（只读 erofs）：文件化 `splctl`、RAUC 安全 post-install、`VARIANT_ID=steamdeck`、DRM 上 gamescope 会话、桌面模式（gamescope 嵌套 Plasma）、Frame 硬件服务屏蔽、`fx-progress-agent` 进度代理（Rust，`guest/progress-agent/`，`fx.progress` virtio-console 端口）与其 root 服务（`fx.clock`、`fx.sleep`、`fx.pad` 上 uinput 或 uhid 手柄）、短关机超时、二维码 Steam 登录模式（无记住账号时用 Steam Deck 客户端）、可选 Steam 客户端分支（`/etc/steamac/steam-client-branch`）、Steam 着色器后台处理默认开启（`steam-shader-defaults`）、Steam 空闲屏保默认关闭（`steam-idle-screensaver`） |
 | `scripts/` | 构建 `work/out/steamos.img`：Valve 分区布局的 GPT（esp、efi-A/B、rootfs-A/B、var-A/B、home）；`scripts/test/provision-test-disk.sh`——对照 Docker 磁盘的预配开发测试；`scripts/test/vkd3d-tiled.sh`——在临时虚拟机中端到端检查 D3D12 平铺资源与功能级别（Proton 11.0 的 vkd3d-proton 测试、`d3d12-caps`、`vk-minmax`） |
+
+### DXMT 路径上的光标
+
+在 wmtr 路径中，DXMT 在 Mac 的虚拟机进程内以 `CAMetalLayer` 呈现游戏。该图层叠在客户机 scanout
+之上，会遮住客户机合成器绘制的光标。每个新客户机代理默认**关闭**跟踪。启动器在 wmtr 图层
+可见性/附加状态改变时，经 `fx.progress` 发送 `cursor-track 1|0`，并在 progress 重连或收到客户机
+启动握手 `cursor-ready` 时重发当前状态；重复启用会重发完整光标快照。
+1 要求游戏焦点允许显示游戏图层，且实际 wmtr `CAMetalLayer` 已附加并可见。Vulkan 及没有此覆盖层的
+Steam/桌面不需要光标跟踪；未知宿主命令仍被忽略，以兼容新旧宿主/客户机组合。
+
+启用时，客户机代理（`guest/progress-agent/src/cursor.rs`）寻找活动窗口 `WM_CLASS` 以 `steam_app_`
+开头的 Xwayland 显示；必须支持 XFixes 且有活动游戏窗口，不回退到根窗口。
+先用 `XFixesGetCursorImage` 获取初始位图，
+之后根据 XFixes 光标变更事件更新，不再定期轮询图像；`QueryPointer` 仅在需要时以不超过 60 Hz
+采样位置。仅发送变化：`cursor 0|1`、`cursor-image <w> <h> <xhot> <yhot> <base64 BGRA>` 与
+`cursor-pos <x> <y> <win_w> <win_h>`。位置及尺寸以焦点游戏 X 窗口客户区像素表示，而非 X 根窗口：
+窗口模式游戏的根窗口可能比客户区大。1×1 或全透明光标会隐藏，Wine 用它们表示游戏没有光标。
+
+启动器在 `Progress.swift` 解析消息，经 `Window.swift` 传到 `Presenter.swift` 中的 `VMView`；
+它持有名为 `steamac.cursor-overlay`、`zPosition` 为 1000 的透明 `CALayer`。仅当游戏图层可见、
+客户机光标可见且位置已知时才显示；不受游戏图层和 Metal HUD 策略影响，wmtr 删除子图层时会重新附加。
+位图转换为 premultiplied-first `CGImage`。映射到视图前，位图和热点按 gamescope 的
+`--cursor-scale-height 720` 缩放：游戏窗口高度为 H 时，目标尺寸为
+`clamp(36 * floor(H / 720), 36, 256)` 像素。与 gamescope 一样，位图任一边超过目标尺寸时会缩小成
+目标正方形，热点坐标截断为整数；否则按目标尺寸 / 位图高度等比缩放，倍率不小于 1。
+X 窗口位置映射到当前远程游戏图层的实际绘制矩形（将 `drawableSize` 等比适配到图层，与 wmtr
+的几何一致），而非客户机画面，因此游戏图层与客户机 scanout 的尺寸或宽高比不同也不会使光标偏移。
+合成器负责最终视图缩放及透明度混合。
+
+可见性跟随**游戏自己的光标**，不模拟 gamescope 的 3 秒空闲自动隐藏。Mac 光标策略不变：
+auto 模式在画面上隐藏，捕获期间也隐藏；tablet 模式及未捕获的 `--mouse capture` 可能同时显示
+Mac 光标和客户机覆盖光标。捕获鼠标用于视角控制本身不会隐藏游戏仍报告为可见的光标。
 
 MoltenVK 还修复空 SPIR-V 块中 discard 的 fragment 辅助函数
 （STEAMAC-1Q）。`host/moltenvk/repro/msl_helpers.c` 检查直接与嵌套辅助函数：

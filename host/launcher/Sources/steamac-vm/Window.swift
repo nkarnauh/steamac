@@ -73,7 +73,7 @@ final class WindowController: NSObject, NSWindowDelegate {
     /// The Mac cursor is hidden over the picture (updateHostCursor); one NSCursor.hide while set.
     private var hostCursorHidden = false
     /// Last reported presentation state; log changes, not every mouse motion / wmtr present.
-    private var lastCursorPresentation: (captured: Bool, covered: Bool, hidden: Bool)?
+    private var lastCursorPresentation: (captured: Bool, covered: Bool, hidden: Bool, overlay: Bool)?
     private var relRemainder = (0.0, 0.0)
     /// Auto mode: where the guest cursor is (guest pixels); nil = unknown, re-anchor first.
     private var guestCursor: (Int, Int)?
@@ -873,12 +873,11 @@ extension WindowController {
         guestCursor = nil
     }
 
-    /// gamescope normally draws the SteamOS cursor into scanout, so auto mode hides the Mac
-    /// cursor to avoid duplicates. wmtr's opaque game layer can cover that cursor (STEAMAC-5Z).
-    /// Log actual layer coverage and host hiding rather than assuming that enabling wmtr proves
-    /// the cursor is missing: the game may draw its own cursor or intentionally hide it. wmtr
-    /// does not remote guest cursor visibility/shape, so showing a replacement Mac arrow would
-    /// be a guess, especially during captured mouse-look. Preserve policy until that state exists.
+    /// gamescope draws the SteamOS cursor into scanout; auto mode hides the Mac cursor to avoid
+    /// duplicates. On DXMT the opaque wmtr picture covers scanout, so VMView draws the game's
+    /// XFixes cursor above it, using the guest's visibility, shape and position. Never infer a
+    /// replacement Mac arrow from layer coverage: the game may intentionally hide its cursor.
+    /// Report both coverage and overlay visibility to distinguish those cases.
     /// Exclusions below keep the cursor over launcher UI, bars and other windows.
     private func updateHostCursor(_ e: NSEvent) { updateHostCursor(at: e.locationInWindow) }
 
@@ -924,10 +923,11 @@ extension WindowController {
     }
 
     private func reportCursorPresentation(covered: Bool, hidden: Bool) {
+        let overlay = view.cursorOverlayVisible
         guard lastCursorPresentation?.captured != captured || lastCursorPresentation?.covered != covered
-                || lastCursorPresentation?.hidden != hidden else { return }
-        lastCursorPresentation = (captured, covered, hidden)
-        log("input: cursor presentation mode=\(mouseMode.rawValue) captured=\(captured) scanout-cursor-covered=\(covered) host-hidden=\(hidden) focus=\(guestFocus)")
+                || lastCursorPresentation?.hidden != hidden || lastCursorPresentation?.overlay != overlay else { return }
+        lastCursorPresentation = (captured, covered, hidden, overlay)
+        log("input: cursor presentation mode=\(mouseMode.rawValue) captured=\(captured) scanout-cursor-covered=\(covered) host-hidden=\(hidden) overlay-visible=\(overlay) focus=\(guestFocus) overlay={\(view.cursorOverlayDiagnostic)}")
     }
 
     /// What decides the cursor changed without the mouse moving: the progress phase, the pause

@@ -430,6 +430,15 @@ do {
     wc.onCloseRequest = { lifecycle.windowCloseRequested() }
     wc.onSuspendRequest = { lifecycle.menuSuspend() }
     wc.attach(progress: progress)
+    func sendCursorTracking(_ tracking: Bool) {
+        _ = progressPort.send("cursor-track \(tracking ? 1 : 0)")
+    }
+    wc.view.onCursorTrackingChange = { sendCursorTracking($0) }
+    progress.onCursorReady = { [weak wc] in
+        wc?.view.guestCursorVisibility(false)
+        sendCursorTracking(wc?.view.cursorTracking ?? false)
+    }
+    sendCursorTracking(wc.view.cursorTracking)
     let ctxId = vm.ctx
     let gpuCounters: () -> StallMonitor.Counters? = {
         var ctrl: UInt64 = 0, ring: UInt64 = 0

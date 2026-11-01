@@ -817,7 +817,9 @@ Medians of three 20 s runs launched through Steam (DXMT: six over two boots); de
 DXMT's winemetal calls cross virtio-gpu to an
 executor **inside the VM process on the Mac**, which presents a `CAMetalLayer` in the VM view.
 That layer would cover the guest compositor's cursor; the launcher draws the game's own cursor above
-it instead (see “Cursor on the DXMT path” under “How it works”).
+it instead, with gamescope-compatible sizing. Cursor tracking is host-gated and DXMT-only: it runs
+only when game focus permits the overlay and an actual wmtr layer is attached and visible, not
+merely because Allow DXMT is on (see “Cursor on the DXMT path” under “How it works”).
 D3D12 (vkd3d-proton) and native Vulkan remain on Venus; this path is for **D3D11/D3D10 only**, not D3D9.
 DXMT still has compatibility gaps, including **no stream output**; expect first-launch shader
 compilation and stutter rather than assuming Steam's Vulkan shader cache covers Metal.
@@ -1234,12 +1236,22 @@ then it closes on its own; `STEAMAC_REPORT_TEST_SEND=1` also sends a test report
 ### Cursor on the DXMT path
 
 On wmtr, DXMT presents the game as a `CAMetalLayer` inside the VM process on the Mac. That layer is
-composited above the guest scanout, so the cursor drawn by the guest compositor is covered. The guest
-agent (`guest/progress-agent/src/cursor.rs`) finds the Xwayland display whose active window's `WM_CLASS`
-starts with `steam_app_` (any XFixes-capable display otherwise), follows the pointer with
-`QueryPointer` every 16 ms while a game has focus, fetches the bitmap with `XFixesGetCursorImage`
-every 50 ms, and sends only changes: `cursor 0|1`, `cursor-image <w> <h> <xhot> <yhot> <base64 BGRA>`,
-and `cursor-pos <x> <y> <win_w> <win_h>`. The position and size are in the focused game's X window
+composited above the guest scanout, so the cursor drawn by the guest compositor is covered. Tracking
+starts **off** in each guest agent. The launcher sends `cursor-track 1|0` over `fx.progress` whenever
+wmtr layer visibility/attachment changes and resends the current state on progress reconnect or the
+guest's startup `cursor-ready` handshake. Repeated enable resends a full cursor snapshot.
+1 requires both game focus permitting game layers and an actual attached, visible wmtr
+`CAMetalLayer`. Vulkan and Steam/Desktop without that overlay do not need cursor tracking; unknown
+host commands remain ignored for old/new host/guest compatibility.
+
+While enabled, the guest agent (`guest/progress-agent/src/cursor.rs`) finds the Xwayland display
+whose active window's `WM_CLASS` starts with `steam_app_`; XFixes support and an active game window
+are required, with no root-window fallback. It fetches the initial bitmap with
+`XFixesGetCursorImage`, then updates it on XFixes cursor-change
+events rather than periodically polling images; `QueryPointer` samples position at most 60 Hz,
+only while needed. It sends only changes: `cursor 0|1`,
+`cursor-image <w> <h> <xhot> <yhot> <base64 BGRA>`, and
+`cursor-pos <x> <y> <win_w> <win_h>`. The position and size are in the focused game's X window
 client pixels, not the X root: a windowed game's root can be larger than its client area. A 1×1 or
 fully transparent cursor is hidden, as Wine uses for a game without a cursor.
 
@@ -1247,12 +1259,20 @@ The launcher parses these in `Progress.swift` and forwards them through `Window.
 `Presenter.swift`, which owns a transparent `CALayer` named `steamac.cursor-overlay` at `zPosition`
 1000. It is shown only while a game layer is visible and the guest cursor is visible and its position
 is known; it is excluded from the game-layer and Metal HUD policies and re-attached if wmtr removes
-sublayers. The bitmap becomes a premultiplied-first `CGImage`. The layer maps the X window position
-into the active remoted game layer's displayed drawable rectangle (`drawableSize` aspect-fit into the
-layer, the same geometry wmtr gives that layer), not into the guest picture, so a game layer whose
-size or aspect differs from the guest scanout does not shift the cursor. The compositor does the
-scaling and alpha blending. This keeps the game visible and preserves the game's own cursor shape,
-hotspot, and visibility.
+sublayers. The bitmap becomes a premultiplied-first `CGImage`. Before mapping into the view, the
+bitmap and hotspot are scaled like gamescope's `--cursor-scale-height 720`: for game-window height H,
+the desired size is `clamp(36 * floor(H / 720), 36, 256)` pixels. This includes gamescope's square
+downsize when either bitmap dimension exceeds the desired size, with integer-truncated hotspot
+coordinates; otherwise its uniform scale is at least 1, based on desired size / bitmap height.
+The layer maps the X window position into the active remoted game layer's displayed drawable
+rectangle (`drawableSize` aspect-fit into the layer, the same geometry wmtr gives that layer), not
+into the guest picture, so a game layer whose size or aspect differs from the guest scanout does
+not shift the cursor. The compositor does the final view scaling and alpha blending.
+
+Visibility follows the **game's own cursor**, not gamescope's 3-second idle autohide. The existing
+Mac cursor policy is unchanged: auto mode hides it over the picture, and capture hides it while
+grabbed; tablet mode and uncaptured `--mouse capture` can show both the Mac cursor and the guest
+overlay. Captured mouse-look does not by itself hide a cursor the game still reports as visible.
 
 MoltenVK also fixes fragment helpers that discard from an otherwise empty SPIR-V block
 (STEAMAC-1Q). `host/moltenvk/repro/msl_helpers.c` checks both direct and nested helpers:
