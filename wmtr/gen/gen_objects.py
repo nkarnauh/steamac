@@ -42,8 +42,8 @@ for typ in structs:
         print('  return 1;\n}')
 print('#endif\n#ifdef WMTR_OBJECT_CALLS')
 table = pathlib.Path(__file__).parents[1] / 'src/wmtr_calls.inc'
-# Display IDs happen to use generic object structs, but are integers, not ObjC objects.
-skip = {0, 1, 10, 94, 95, 96, 114}
+# Display IDs and color-space enums use generic object structs, but are scalars, not ObjC objects.
+skip = {0, 1, 10, 92, 94, 95, 96, 114}
 for call, name, typ in re.findall(r'X\((\d+), (\w+), (.*?), \w\)', table.read_text()):
     call = int(call)
     if call in skip:

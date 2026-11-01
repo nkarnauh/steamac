@@ -697,7 +697,6 @@ case 87: return objects_unixcall_generic_obj_uint64_noret(w, (void *)payload, ou
 case 89: return objects_unixcall_generic_obj_obj_ret(w, (void *)payload, output);
 case 90: return objects_unixcall_generic_obj_obj_ret(w, (void *)payload, output);
 case 91: return objects_unixcall_enumerate(w, (void *)payload, output);
-case 92: return objects_unixcall_generic_obj_uint64_ret(w, (void *)payload, output);
 case 93: return objects_unixcall_generic_obj_uint64_uint64_ret(w, (void *)payload, output);
 case 97: return objects_unixcall_generic_obj_constptr_noret(w, (void *)payload, output);
 case 98: return objects_unixcall_mtllibrary_newfunction_with_constants(w, (void *)payload, output);

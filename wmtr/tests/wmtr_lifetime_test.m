@@ -21,7 +21,7 @@ static NTSTATUS command_buffer(void *p) {
 }
 static NTSTATUS queue(void *p) { ((struct unixcall_generic_obj_ret *)p)->ret = (uint64_t)[[MTLCreateSystemDefaultDevice() newCommandQueue] autorelease]; return 0; }
 static NTSTATUS bad_string(void *p) { char buffer[8]; [(id)((struct unixcall_nsstring_getcstring *)p)->str getCString:buffer maxLength:sizeof buffer encoding:NSUTF8StringEncoding]; return 0; }
-const void *wmtr_impl_funcs[WMTR_NCALLS] = {[0]=retain_object, [1]=release_object, [4]=make_owned, [5]=query, [53]=make_probe, [62]=queue, [11]=command_buffer, [30]=noop, [38]=noop, [8]=bad_string};
+const void *wmtr_impl_funcs[WMTR_NCALLS] = {[0]=retain_object, [1]=release_object, [4]=make_owned, [5]=query, [53]=make_probe, [62]=queue, [11]=command_buffer, [30]=noop, [38]=noop, [8]=bad_string, [92]=query};
 uint64_t wmtr_test_present_create_view(void *c, uint64_t hwnd, void *dev, uint64_t *layer) { return 0; }
 void wmtr_test_present_release_view(void *c, uint64_t v) {}
 static void *blob(void *ctx, uint32_t n, uint64_t *size) { *size = WMTR_RING_BLOB_BYTES; return n ? NULL : ctx; }
@@ -44,6 +44,8 @@ static NTSTATUS call(struct wmtr_host *h, uint16_t n, void *params, uint32_t siz
 int main(void) { @autoreleasepool {
   setenv("WMTR_TEST_STRICT_OBJECTS", "1", 1);
   struct wmtr_host *a=new_host(), *b=new_host(); CHECK(a && b);
+  struct unixcall_generic_obj_uint64_ret color={WMTColorSpaceHDR10,0};
+  CHECK(call(a,92,&color,sizeof color)==0 && color.ret==42); /* enum, not an object handle */
   struct unixcall_generic_obj_ret pa={0}, pb={0}, oa={0}, ob={0};
   CHECK(call(a,10,&pa,sizeof pa)==0); CHECK(call(a,53,&oa,sizeof oa)==0);
   CHECK(call(b,10,&pb,sizeof pb)==0); CHECK(call(b,53,&ob,sizeof ob)==0); CHECK(alive==2);
