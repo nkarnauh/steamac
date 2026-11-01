@@ -378,6 +378,38 @@
         }
       }
     },
+    "%@: reconstructed SteamOS file is unavailable. Check that the drive is connected and no other program is moving or deleting its files, then try again" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: восстановленный файл SteamOS недоступен. Проверьте, что накопитель подключён и другая программа не перемещает и не удаляет его файлы, затем повторите попытку"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@：重建的 SteamOS 文件不可用。请检查驱动器是否已连接，并确认没有其他程序正在移动或删除其文件，然后重试"
+          }
+        }
+      }
+    },
+    "%@: the partition table read back differs from what was written. Check the drive with Disk Utility First Aid or choose another drive" : {
+      "localizations" : {
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@: прочитанная таблица разделов отличается от записанной. Проверьте накопитель функцией «Первая помощь» в Дисковой утилите или выберите другой накопитель"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@：读回的分区表与写入的内容不一致。请使用“磁盘工具”的“急救”检查驱动器，或选择其他驱动器"
+          }
+        }
+      }
+    },
     "%lld FPS (1%% low %lld)" : {
       "localizations" : {
         "en" : {
