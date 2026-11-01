@@ -315,6 +315,27 @@ if [ "$driver" = moltenvk ]; then
 	"$work/vertex_input" "$gspv"
 fi
 
+if [ "$driver" = moltenvk ]; then
+	# STEAMAC-67 / 3A / X: auxiliary buffer pressure and integer attachment blend validation.
+	build pipeline_limits
+	MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0 "$work/pipeline_limits" "$gspv" buffers
+	"$work/pipeline_limits" "$gspv" blend
+	build spec_ids
+	"$work/spec_ids" "$gspv"
+	"$work/pipeline_limits" "$gspv" shared
+	compute_log=$work/compute-memory-log.txt
+	"$work/pipeline_limits" "$gspv" oversized 2> "$compute_log"
+	if grep -q 'Compute pipeline diagnostics: entry=main hash=.*shared-memory-limit=32768' "$compute_log" &&
+		grep -q '^\[mvk-msl\] // Pipeline failure MSL stage=.*bytes=.*lines=' "$compute_log" &&
+		grep -q 'threadgroup .*11616' "$compute_log"; then
+		echo "OK oversized compute pipeline logs workgroup, memory limit and MSL declarations"
+	else
+		cat "$compute_log"
+		echo "FAIL oversized compute pipeline lacks memory/source diagnostics"
+		exit 1
+	fi
+fi
+
 build device_address
 "$work/device_address" "$gspv"
 
@@ -372,8 +393,9 @@ if [ "$driver" = moltenvk ]; then
 	"$work/msl_helpers" "$gspv" link-log 2> "$link_log"
 	if grep -q '^\[mvk-msl\] // vertex entry=main hash=' "$link_log" &&
 		grep -q '^\[mvk-msl\] // fragment entry=main hash=' "$link_log" &&
-		grep -q '^\[mvk-msl\] // in location=3 component=0 type=.* width=4 ' "$link_log"; then
-		echo "OK graphics pipeline failure includes stage interfaces"
+		grep -q '^\[mvk-msl\] // in location=3 component=0 type=.* width=4 ' "$link_log" &&
+		grep -q '^\[mvk-msl\] // Pipeline failure MSL stage=.*bytes=.*lines=' "$link_log"; then
+		echo "OK graphics pipeline failure includes stage interfaces and bounded MSL source"
 	else
 		cat "$link_log"
 		echo "FAIL graphics pipeline failure lacks stage interfaces"
@@ -406,6 +428,17 @@ build d3d12_caps
 if [ "$driver" = kosmickrisp ]; then
 	build image_views
 	"$work/image_views"
+
+	# STEAMAC-5E/5F: block-edge and volume scratch copies with Metal validation.
+	build sentry-image-copy
+	"$work/sentry-image-copy" compressed
+	"$work/sentry-image-copy" color
+
+	# STEAMAC-6H/6G: unused NULL sets and missing descriptor declarations.
+	build sentry_descriptors
+	for case_id in 0 1 2 3 4; do
+		"$work/sentry_descriptors" "$gspv" "$case_id"
+	done
 
 	glslangValidator -V --quiet -x "$here/shaders/texture_descriptors.comp" -o "$work/texture_descriptors.comp.inc"
 	build texture_descriptors -I"$work"
