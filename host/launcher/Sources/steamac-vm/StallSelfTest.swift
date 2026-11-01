@@ -35,6 +35,9 @@ enum StallSelfTest {
                                   inputs: nil, mouseMode: .auto)
         presenter.view = wc.view
         wc.view.metalLayer.framebufferOnly = false
+        // The card pixel test must not depend on saved HUD/upscaler preferences.
+        wc.view.metalHUD = false
+        renderer.superResolution = false
         presenter.onScanoutResize = { w, h in wc.scanoutResized(width: w, height: h) }
         wc.onCloseRequest = { exit(2) }
         let outDir = o.selftestOut ?? FileManager.default.currentDirectoryPath
@@ -63,16 +66,17 @@ enum StallSelfTest {
 
         // Activity (60 Hz) and heartbeat (1 Hz) generators.
         let activity = Thread {
-            var n = 0
+            var nextHeartbeat = ProcessInfo.processInfo.systemUptime + 1
             while true {
                 switch mode.load(ordering: .relaxed) {
                 case 1: ctrl.add(1, ordering: .relaxed)
                 case 2: ring.add(1, ordering: .relaxed)
                 default: break
                 }
-                n += 1
-                if n % 60 == 0 && heartbeats.load(ordering: .relaxed) {
-                    let ms = Int(ProcessInfo.processInfo.systemUptime * 1000)
+                let now = ProcessInfo.processInfo.systemUptime
+                if now >= nextHeartbeat && heartbeats.load(ordering: .relaxed) {
+                    nextHeartbeat = now + 1
+                    let ms = Int(now * 1000)
                     _ = "alive \(ms) 1.25\n".withCString { Darwin.write(port.guestOutputFd, $0, strlen($0)) }
                 }
                 Thread.sleep(forTimeInterval: 1.0 / 60)
@@ -148,15 +152,17 @@ enum StallSelfTest {
             Step(name: "09a-host-main-queue-delayed", action: {
                 heartbeats.store(false, ordering: .relaxed)
                 stallDiagnostic = nil
+                monitor.gameFocused = true
                 Thread.sleep(forTimeInterval: 6)
             }, wait: 0.4) {
-                expectHidden("first poll after a 6 s host scheduling gap")
+                expectShown(title: working, detail: String(localized: "VM CPU \(sampleCPU) cores"))
                     ?? (stallDiagnostic == nil ? nil : "host polling gap incorrectly reported as a guest hang")
             },
             Step(name: "09b-host-queue-heartbeat-back", action: {
                 // The previous screenshot may take longer than the observation
                 // window; a real silence during that capture is not a false report.
                 stallDiagnostic = nil
+                monitor.gameFocused = false
                 heartbeats.store(true, ordering: .relaxed)
                 heartbeat()
             }, wait: 1.8) {
@@ -179,6 +185,7 @@ enum StallSelfTest {
                     ?? (stallDiagnostic.map {
                         $0.idle >= StallMonitor.idleThreshold && $0.heartbeatAge > StallMonitor.heartbeatTimeout
                             && $0.history.contains("ctrl-total ring-total heartbeat-age guest-uptime-ms")
+                            && $0.history.contains("VM memory snapshots")
                             && $0.history.split(separator: "\n").count > 5
                     } == true ? nil : "missing counter/heartbeat history in the stall report")
             },

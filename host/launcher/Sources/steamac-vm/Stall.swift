@@ -186,8 +186,10 @@ final class StallMonitor {
         guard countersAvailable, gateOpen, gameFocused || dead,
               now - max(lastActivity, gateOpenedAt) >= StallMonitor.idleThreshold else {
             if shownSince != nil {
+                let response = (heartbeatAge ?? 0) > Self.heartbeatTimeout
+                    ? "host observation restarted" : "guest responding again"
                 hide(reason: !enabled ? "setting off" : suppressed ? "overlay"
-                     : notRespondingReported && !dead ? "guest responding again" : "game focus lost", now: now)
+                     : notRespondingReported && !dead ? response : "game focus lost", now: now)
             }
             return
         }
@@ -205,7 +207,7 @@ final class StallMonitor {
             notRespondingReported = true
             log("stall: guest not responding (no heartbeat for \(Int(heartbeatAge ?? 0)) s, gpu idle \(Int(now - lastActivity)) s)")
             onNotResponding?(Diagnostic(idle: now - lastActivity, heartbeatAge: heartbeatAge ?? 0,
-                                       history: diagnosticHistory(now: now)))
+                                       history: diagnosticHistory(now: now) + "\n" + VMMemoryDiagnostics.shared.history()))
         }
         if !longStallLogged && now - max(lastActivity, gateOpenedAt) >= 10 {
             longStallLogged = true
@@ -245,7 +247,7 @@ final class StallMonitor {
         }
         let title = String(localized: "Still working — loading or compiling shaders…")
         let cores = String(format: "%.1f", currentCPU())
-        let detail = lastAlive > 0
+        let detail = heartbeatAge.map { $0 <= Self.heartbeatTimeout } == true
             ? String(localized: "VM CPU \(cores) cores · guest alive")
             : String(localized: "VM CPU \(cores) cores")
         return (title, detail)
@@ -255,8 +257,13 @@ final class StallMonitor {
     private func status(_ now: CFTimeInterval, cpu: Double? = nil) -> String {
         let guest: String
         if let age = heartbeatAge {
-            guest = age > StallMonitor.heartbeatTimeout ? "guest not responding for \(Int(age)) s"
-                                                        : "guest alive, load \(String(format: "%.2f", guestLoad))"
+            if age <= Self.heartbeatTimeout {
+                guest = "guest alive, load \(String(format: "%.2f", guestLoad))"
+            } else if notResponding() {
+                guest = "guest not responding for \(Int(age)) s"
+            } else {
+                guest = "heartbeat delayed \(Int(age)) s, observing after host scheduling gap"
+            }
         } else {
             guest = "no guest heartbeat"
         }
