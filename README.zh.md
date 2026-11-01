@@ -452,6 +452,8 @@ work/out/steamac-vm --create-disk ~/steamos.img [--branch stable] [--home-gib 64
 启动器记录目标和缓存的文件系统类型。缓存分块重命名冲突时，以单工作线程、不使用缓存重试一次。
 rootfs 哈希不符时再顺序读取，以区分错误的稀疏区段元数据和文件字节损坏；若字节损坏，则删除临时 rootfs 与分块缓存，
 以单工作线程、不使用缓存重新下载一次，重试前清空两个磁盘槽。再次校验失败仍会上报；哈希不匹配签名清单就不发布磁盘。
+创建磁盘时会把读回的分区表与写入内容比对——在私有文件中以及磁盘发布之后各一次。若不一致（STEAMAC-6J，exFAT），
+或重建的 rootfs 在分配磁盘前消失（STEAMAC-68），仍会上报，并附文件标识与不一致的 GPT 字段；窗口建议用“磁盘工具”的“急救”检查驱动器或换一个驱动器。
 
 如果下载无法安全连接到 Valve，窗口会提示 VPN、代理或网络过滤器可能造成干扰：
 请尝试关闭它们或更换网络。连接 GitHub 的更新检查也会给出同样建议。
@@ -529,6 +531,8 @@ Metal 初始化前，启动器检查运行时编译器的模块缓存是否可�
 | **MoltenVK** — Metal 3 · macOS 15+（`moltenvk`） | `host/moltenvk/`：UTM 分支 + steamac 补丁 | 所有受支持 Mac；macOS 15 默认，无 KosmicKrisp 的构建也默认（macOS 15 源码构建；1.7 起发布 DMG 含 KosmicKrisp） |
 
 切换改变 Venus 驱动身份（管线缓存 UUID），Steam 与游戏重建着色器缓存。宿主驱动建不出的管线在 virglrenderer 中是占位：其绘制与派发被丢弃，驱动永远见不到 `VK_NULL_HANDLE`。
+
+宿主驱动拒绝会触发 Metal 断言、进而终止整个虚拟机的 Vulkan 输入，并把 Vulkan 参数写入日志。KosmicKrisp：层范围为空或越界、或在块大小不同的颜色格式之间创建的图像视图返回 `VK_ERROR_FORMAT_NOT_SUPPORTED`（STEAMAC-62/3）；着色器使用而管线布局缺少的描述符读为零、写入被丢弃（STEAMAC-6H）；经中转缓冲的图像复制不超出 mip 边界并覆盖体纹理的所有切片（STEAMAC-5E/5F）。MoltenVK：对 Metal 无法混合的附件（R32_UINT）启用混合的管线创建失败（STEAMAC-3A）；顶点阶段辅助缓冲打包进 Metal 的 31 个缓冲槽（STEAMAC-67）；支持完整 32 位 specialization constant ID（STEAMAC-6A）。SPIRV-Cross 修复 STEAMAC-33/6D/6E/5M/5K/2N/5C 的 MSL 错误（`host/moltenvk/repro/sentry-msl.sh` 编译每个重建的着色器）。
 
 **允许 DXMT（通过 Mac 的 Metal 运行 D3D11），实验性。** 设置 → 高级 →
 **允许 DXMT（通过 Mac 的 Metal 运行 D3D11）**默认关闭，下次启动生效（单次启动用 `--wmtr-lib PATH` 或 `--no-wmtr`）。
@@ -656,7 +660,7 @@ SDK 根本不启动、不联网（已落盘报告保留在原处、不发送）�
 发送内容：
 
 - 监管器与虚拟机进程崩溃（信号/abort、未处理异常）：原因、线程堆栈、已加载库。含 Metal/MoltenVK 断言、libkrun/virglrenderer
-  abort、经 libkrun C API 传出的 Rust panic。虚拟机进程崩溃报告在下次启动虚拟机时发送；
+  abort、经 libkrun C API 传出的 Rust panic。虚拟机进程崩溃报告在下次启动虚拟机时发送。未捕获的 Objective-C 异常按其原因（stderr 中首次抛出的消息与堆栈）分组，而不是归入 `CPPExceptionTerminate`（STEAMAC-58）；
 - 少量错误（每进程每指纹至多一次，有全局上限；同一指纹至少一天、着色器编译错误 30 天内不重发）：客户机 GPU 上下文 fatal/device lost（vkr “fatal decoder state”、“device lost”）、MoltenVK
   管线编译错误（`[mvk-error] … compile failed`；MoltenVK 若打印 MSL 源码
   （`[mvk-msl] …`：前 40 行与出错前后行）放 extra `msl_source` 而非面包屑；vkr “pipeline … creation failed on host” 只做面包屑）、libkrun 中 Rust panic（`thread … panicked at`）、首次磁盘预配失败（`provision
@@ -666,6 +670,7 @@ SDK 根本不启动、不联网（已落盘报告保留在原处、不发送）�
   仅代理心跳停止，并不能证明整个客户机或 GPU 已经挂起。
   空闲指示器持续 10 秒时，同样的采样会写入日志一次，即使心跳仍正常，
   因此无需启用性能统计，“报告问题”也可包含游戏卡顿的诊断信息。
+  宿主调度停顿（启动器自身数秒未运行）之后，检测器先观察一个新的心跳窗口，不把停顿算作客户机挂起。
 - SIGTERM/SIGINT/SIGHUP 退出的虚拟机（注销、`kill`、处理器安装前的 ^C）不是崩溃：只有日志行，无事件、无报告问题窗口。SIGPIPE 也不是（两进程都忽略：输出管道关闭——终端，或监管器被杀后的监管器 stderr 通道——只失败该次写；虚拟机进程转而记到
   `~/Library/Logs/es.fxgam.steamac/steamac-vm.log` 或丢弃这些行，让客户机继续关完；STEAMAC-10）。SIGKILL 生成
   warning 级 `vm-killed` 事件，“VM process killed (SIGKILL — memory pressure or force quit)”：
@@ -678,7 +683,8 @@ SDK 根本不启动、不联网（已落盘报告保留在原处、不发送）�
   标题与 `crash_site` 标签中的崩溃位置（报告按其分组），extra `macos_crash_report` 中的异常、Application Specific
   Information 行（堆损坏陷阱时 libmalloc 的消息）及崩溃线程前 16 帧（库名与符号名）；
   `memory_history` 增加最多两分钟的退出前虚拟机 footprint 与宿主内存采样（每 10 秒一次）；
-  报告时的独立快照标为退出后状态，因为虚拟机内存已释放。
+  报告时的独立快照标为退出后状态，因为虚拟机内存已释放。GPU 上下文 fatal 与 SIGKILL 报告附加虚拟机进程最近的 GPU/心跳历史，
+  以及进程、Metal、Vulkan 分配与共享内存快照；这些计数相互重叠，不能相加。因磁盘被占用而被拒绝的第二个虚拟机以状态 4 退出：只有说明，不上报。
 - 每个事件附带启动器 stderr 最近约 200 行做面包屑（`[steamac-vm]`、
   `[mvk-*]`、libkrun/virglrenderer 警告、启动阶段）与标签：版本
   （`es.fxgam.steamac@<CFBundleShortVersionString>+<git sha>`）、环境与 `build_kind` 标签：
@@ -816,10 +822,12 @@ Worker URL 填入 `host/launcher/Info.plist`（`SteamacGameStatsURL`）与 `docs
   `webhelper`、`cef_log`、`shader_log`、`steamui_*`、Steam Input 的 `controller`、`controller_ui` 与
   `cloud_log`）与 Proton 日志（`PROTON_LOG=1` 的 `~/steam-*.log`、
   `compatdata` 中 prefix 的 `version` 与 `config_info`），FEX 工具构建 ID / Steam 清单 /
-  配置、可选 FEX 日志、内存限制与 American Truck
+  配置、可选 FEX 日志、内存限制、内存/IO/CPU 压力（`/proc/pressure/*`）、`/proc/vmstat` 与三次 `vmstat` 采样、
+  SteamVR 与串流日志尾部（`vrserver`、`vrcompositor`、`vrmonitor`、`vrwebhelper`、`vrstream`、`streaming_log`，各 256 KiB，IP 地址已脱敏）与 American Truck
   Simulator `game.log.txt` 最近 512 KiB。ATS 模拟器崩溃请将其 Steam 启动选项设为
   `FEX_SILENTLOG=0 FEX_OUTPUTLOG=/home/steamos/fex-amtrucks.log %command%`，复现后报告；
   收集器收录该日志最近 512 KiB。事后移除启动选项。
+  没有 Proton 日志时，归档会提示：要看到 Windows 游戏本身的失败，需设置启动选项 `PROTON_LOG=1 %command%`、复现一次并重新报告。
   FEX 从 JIT 代码重抛模拟游戏的崩溃，core 堆栈只有匿名 AArch64 地址。要记录 x86_64 代码 fault 位置，创建
   `~/.local/share/Steam/steamapps/compatdata/<appid>/fex-emu/AppConfig/<可执行文件>.json`（ATS：
   `270880/fex-emu/AppConfig/amtrucks.json`），内容为

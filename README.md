@@ -620,6 +620,10 @@ single worker and no cache. A rootfs hash mismatch is checked again with a seque
 sparse-extent metadata from bad file bytes. If the bytes are bad, the temporary rootfs and chunk cache are
 deleted and downloaded again once, serially without a cache; both disk slots are cleared before retrying.
 A second integrity failure remains reportable; no disk is published without matching the signed manifest.
+Disk creation compares the partition table read back with what it wrote, both in the private file and
+after publishing the disk. A difference (STEAMAC-6J, exFAT), or a reconstructed rootfs that disappears
+before the disk is allocated (STEAMAC-68), stays reportable with file identities and the differing GPT
+fields; the window suggests Disk Utility First Aid or another drive.
 
 If a download cannot reach Valve securely, the window explains that a VPN, proxy, or network filter
 may be interfering: try disabling it or using another network. Update checks give the same advice
@@ -731,6 +735,16 @@ verifies actual Metal source compilation with the replacement (no VM or Sentry e
 Switching changes the Venus driver identity (pipeline cache UUID), so Steam and games rebuild their
 shader caches. A pipeline the host driver cannot build is a placeholder in virglrenderer: its draws
 and dispatches are dropped, the driver never sees `VK_NULL_HANDLE`.
+
+The host drivers refuse the Vulkan inputs that would otherwise trip a Metal assertion that ends the
+whole VM, and log the Vulkan arguments. KosmicKrisp: an image view with an empty or out-of-range layer
+range, or between color formats of different block sizes, fails with `VK_ERROR_FORMAT_NOT_SUPPORTED`
+(STEAMAC-62/3); a descriptor a shader uses but the pipeline layout lacks reads zero and drops writes
+(STEAMAC-6H); image copies through a scratch buffer stay inside the mip and cover every volume slice
+(STEAMAC-5E/5F). MoltenVK: a pipeline blending an attachment Metal cannot blend (R32_UINT) fails
+(STEAMAC-3A); vertex-stage auxiliary buffers are packed into Metal's 31 buffer slots (STEAMAC-67);
+full 32-bit specialization constant IDs work (STEAMAC-6A). SPIRV-Cross fixes the MSL errors of
+STEAMAC-33/6D/6E/5M/5K/2N/5C (`host/moltenvk/repro/sentry-msl.sh` compiles each reconstructed shader).
 
 **Allow DXMT (D3D11 on the Mac's Metal), experimental.** Settings → Advanced → **Allow DXMT (D3D11 on
 the Mac's Metal)** is off by default and applies on next start (`--wmtr-lib PATH` or `--no-wmtr` for one launch).
@@ -885,7 +899,8 @@ What is sent:
 - Crashes of the supervisor and VM processes (signal/abort, unhandled exceptions): cause, thread
   stacks, list of loaded libraries. This includes Metal/MoltenVK asserts, libkrun/virglrenderer
   aborts, and Rust panics propagated through the libkrun C API. A VM process crash report is sent on
-  the next VM launch;
+  the next VM launch. An uncaught Objective-C exception is grouped by its reason (the first-throw
+  message and stack from stderr), not under `CPPExceptionTerminate` (STEAMAC-58);
 - A few errors (no more than once per fingerprint per process, subject to a global limit; the same
   fingerprint is not sent again for at least a day, or 30 days for shader compilation errors): the
   guest GPU context becomes fatal/device lost (vkr “fatal decoder state”, “device lost”), MoltenVK
@@ -905,6 +920,8 @@ What is sent:
   off (STEAMAC-8). Missing agent heartbeats alone do not prove that the whole guest or GPU hung.
   The same samples are logged once when an idle indicator lasts 10 s, including with a live
   heartbeat, so Report a Problem can diagnose game stalls without enabling performance statistics.
+  After a host scheduling gap (the launcher itself not running for seconds) the detector watches a
+  fresh heartbeat window before reporting, instead of counting the gap as a guest hang.
 - VM exit due to SIGTERM/SIGINT/SIGHUP (logging out, `kill`, ^C before handlers are installed) is not
   a crash: only a log line, with no event and no Report a Problem window. Neither is SIGPIPE (both
   processes ignore it: a closed output pipe — the terminal, or the supervisor's stderr channel after
@@ -921,6 +938,9 @@ What is sent:
   could not be written, STEAMAC-15);
   `memory_history` adds up to two minutes of pre-exit VM footprint and host memory samples (every
   10 s); the separate report-time snapshot is labelled post-exit because VM memory is already freed.
+  GPU-fatal and SIGKILL reports add the VM process's recent GPU/heartbeat history and process, Metal,
+  Vulkan-allocation and shared-memory snapshots; these counters overlap and are not a sum. A second
+  VM refused because its disk is in use exits with status 4: the explanation, no report.
 - Every event includes the last ~200 lines of launcher stderr as breadcrumbs (`[steamac-vm]`,
   `[mvk-*]`, libkrun/virglrenderer warnings, startup stages) and tags: version
   (`es.fxgam.steamac@<CFBundleShortVersionString>+<git sha>`), environment, and `build_kind` tag:
@@ -1091,10 +1111,15 @@ what you expected, what happened), and checkboxes for attachments:
   `webhelper`, `cef_log`, `shader_log`, `steamui_*`, Steam Input's `controller`, `controller_ui` and
   `cloud_log`) and Proton logs (`~/steam-*.log` from `PROTON_LOG=1`,
   `version` and `config_info` of prefixes in `compatdata`), FEX tool build ID / Steam manifest /
-  configuration, an opt-in FEX log, memory limits, and the last 512 KiB of American Truck
+  configuration, an opt-in FEX log, memory limits, memory/IO/CPU pressure (`/proc/pressure/*`),
+  `/proc/vmstat` and three `vmstat` samples, SteamVR and streaming log tails (`vrserver`,
+  `vrcompositor`, `vrmonitor`, `vrwebhelper`, `vrstream`, `streaming_log`, 256 KiB each, IP addresses
+  redacted), and the last 512 KiB of American Truck
   Simulator's `game.log.txt`. For an ATS emulator crash, set its Steam launch options to
   `FEX_SILENTLOG=0 FEX_OUTPUTLOG=/home/steamos/fex-amtrucks.log %command%`, reproduce, and report;
   the collector includes the last 512 KiB of that log. Remove the launch options afterwards.
+  Without Proton logs the archive notes that `PROTON_LOG=1 %command%` as a game's launch options,
+  one reproduction and a new report are needed to see a Windows game's own failure.
   FEX re-raises a crash of the emulated game from its JIT code, so the core's stack shows only an
   anonymous AArch64 address. To record where the x86_64 code faulted, create
   `~/.local/share/Steam/steamapps/compatdata/<appid>/fex-emu/AppConfig/<executable>.json` (ATS:
