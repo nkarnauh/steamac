@@ -18,6 +18,15 @@
 #            linux/amd64 container (Docker/OrbStack, like guest/mesa) -> wmtr/build/x86_64-linux
 #   payload  make -C wmtr dxmt-payload -> work/out/dxmt (installed into the layer by scripts/steps/30-layer.sh)
 #
+# Host lifetime boundary (STEAMAC-5W/5X, 58/59): virtual autorelease pools and fallback retains belong
+# to one guest context, never to process-global reply-slot numbers. Typed object-field metadata
+# (wmtr/gen/gen_objects.py) validates receivers, embedded command resources and pipeline inputs before
+# Objective-C dispatch; worker calls lease live objects. Invalid handles fail the call, late encoders
+# on committed command buffers and Objective-C exceptions lose only that context. `make test` includes
+# a strict real-object multi-context regression; the marshalling loopback still uses fake handles.
+# WMTR_PRESENT_TRACE=1 logs actual drawable presentedTime/submit time/minimum duration for display
+# pacing investigations; the launcher's display-pacing diagnostics distinguish physical and guest Hz.
+#
 # Needs: Apple silicon macOS with Xcode (and its Metal toolchain: xcodebuild -downloadComponent MetalToolchain),
 # Rosetta (the pinned Wine's winebuild is x86_64), Homebrew (meson ninja cmake pkgconf zstd), Docker for `client`.
 # Without the Metal toolchain set DXMT_PREBUILT_METAL to a directory with dxmt_command.metallib and
