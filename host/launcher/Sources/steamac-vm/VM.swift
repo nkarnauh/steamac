@@ -115,6 +115,7 @@ final class VM {
             unsetenv("WMTR_PRESENT")
         }
         let flags = o.gpuFlags ?? (STEAMAC_VIRGL_VENUS | STEAMAC_VIRGL_NO_VIRGL)
+        log("gpu: virgl flags \(String(format: "0x%08x", flags)) (\(o.gpuFlags == nil ? "default" : "command-line override"))")
         try krun("krun_set_gpu_options2", krun_set_gpu_options2(ctx, flags, UInt64(o.shmMiB) << 20))
         let (gw, gh) = o.guestSize
         displayId = UInt32(try krun("krun_add_display", krun_add_display(ctx, UInt32(gw), UInt32(gh))))
@@ -176,6 +177,7 @@ final class VM {
     /// Runs the VMM on a dedicated thread. libkrun exit()s the process when the guest stops.
     func start() {
         running = true
+        VMMemoryDiagnostics.shared.start()
         let t = Thread { [ctx] in
             let r = krun_start_enter(ctx)
             fatal("krun_start_enter failed: \(r) (\(String(cString: strerror(-r))))")

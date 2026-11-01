@@ -53,6 +53,9 @@ enum StallSelfTest {
         func guest(_ s: String) {
             _ = s.withCString { Darwin.write(port.guestOutputFd, $0, strlen($0)) }
         }
+        func heartbeat() {
+            guest("alive \(Int(ProcessInfo.processInfo.systemUptime * 1000)) 1.25\n")
+        }
 
         wc.show()
         wc.overlay.show(animated: false)
@@ -139,9 +142,33 @@ enum StallSelfTest {
             Step(name: "09-focus-steam-hides", action: { guest("focus steam\n") }, wait: 0.5) {
                 view.isIdle ? expectHidden("focus back to Steam") : "indicator view not hidden + idle after focus steam"
             },
-            // The last heartbeat may be up to ~1.1 s (generator period) plus the previous step's
-            // capture older than this action: 3 s keeps the check clear of the 5 s timeout.
-            Step(name: "10-steam-ui-heartbeat-lost-3s", action: { heartbeats.store(false, ordering: .relaxed) }, wait: 3.0) {
+            // Real timer starvation: the heartbeat source is quiet while the main
+            // queue cannot drain progress callbacks. Its first delayed poll must
+            // not turn host scheduling latency into a guest hang (STEAMAC-8).
+            Step(name: "09a-host-main-queue-delayed", action: {
+                heartbeats.store(false, ordering: .relaxed)
+                stallDiagnostic = nil
+                Thread.sleep(forTimeInterval: 6)
+            }, wait: 0.4) {
+                expectHidden("first poll after a 6 s host scheduling gap")
+                    ?? (stallDiagnostic == nil ? nil : "host polling gap incorrectly reported as a guest hang")
+            },
+            Step(name: "09b-host-queue-heartbeat-back", action: {
+                // The previous screenshot may take longer than the observation
+                // window; a real silence during that capture is not a false report.
+                stallDiagnostic = nil
+                heartbeats.store(true, ordering: .relaxed)
+                heartbeat()
+            }, wait: 1.8) {
+                expectHidden("queued guest heartbeat recovered")
+                    ?? (stallDiagnostic == nil ? nil : "recovered heartbeat incorrectly reported as a guest hang")
+            },
+            // Establish a heartbeat at the transition, rather than relying on a
+            // 60 Hz activity generator or screenshot latency for a 5 s deadline.
+            Step(name: "10-steam-ui-heartbeat-lost-3s", action: {
+                heartbeats.store(false, ordering: .relaxed)
+                heartbeat()
+            }, wait: 3.0) {
                 expectHidden("Steam UI, heartbeat lost < 5 s")
             },
             Step(name: "11-steam-ui-not-responding", action: {}, wait: 3.0) {
@@ -155,7 +182,10 @@ enum StallSelfTest {
                             && $0.history.split(separator: "\n").count > 5
                     } == true ? nil : "missing counter/heartbeat history in the stall report")
             },
-            Step(name: "12-heartbeat-back", action: { heartbeats.store(true, ordering: .relaxed) }, wait: 1.8) {
+            Step(name: "12-heartbeat-back", action: {
+                heartbeats.store(true, ordering: .relaxed)
+                heartbeat()
+            }, wait: 1.8) {
                 view.isIdle ? expectHidden("heartbeat back in the Steam UI") : "indicator view not hidden + idle after heartbeat"
             },
             // Switch to Desktop: the agent ends with the gamescope session, no heartbeat follows.

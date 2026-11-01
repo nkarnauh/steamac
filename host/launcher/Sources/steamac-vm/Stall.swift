@@ -52,6 +52,9 @@ final class StallMonitor {
     private var lastReading: CFTimeInterval = 0
     private var lastPoll: CFTimeInterval = 0
     private var guestUptimeMs = 0
+    // A delayed main-queue timer cannot establish guest silence: queued progress
+    // callbacks have not had a chance to run either (STEAMAC-8).
+    private var heartbeatObservationStarted = CACurrentMediaTime()
 
     let view: StallIndicatorView
     /// nil = no counters (VM not running, no GPU): never shows.
@@ -94,6 +97,7 @@ final class StallMonitor {
         self.view = view
         self.sample = sample
         readings.reserveCapacity(32)
+        VMMemoryDiagnostics.shared.start()
     }
 
     func start() {
@@ -122,6 +126,7 @@ final class StallMonitor {
         if lastAlive > 0 { lastAlive = now }
         counters = nil
         lastPoll = now
+        heartbeatObservationStarted = now
         start()
     }
 
@@ -154,6 +159,10 @@ final class StallMonitor {
 
     private func poll() {
         let now = CACurrentMediaTime()
+        if lastPoll > 0 && now - lastPoll > Self.heartbeatTimeout {
+            heartbeatObservationStarted = now
+            log("stall: host polling gap \(String(format: "%.2f", now - lastPoll)) s; observing fresh heartbeat window")
+        }
         let c = sample()
         let active: Bool
         noteReading(now: now, counters: c)
@@ -223,7 +232,12 @@ final class StallMonitor {
 
     private var heartbeatAge: CFTimeInterval? { lastAlive > 0 ? CACurrentMediaTime() - lastAlive : nil }
 
-    private func notResponding() -> Bool { (heartbeatAge ?? 0) > StallMonitor.heartbeatTimeout }
+    private func notResponding() -> Bool {
+        let now = CACurrentMediaTime()
+        return (heartbeatAge ?? 0) > Self.heartbeatTimeout
+            && now - heartbeatObservationStarted > Self.heartbeatTimeout
+            && lastPoll > 0 && now - lastPoll <= Self.heartbeatTimeout
+    }
 
     private func text(now: CFTimeInterval, idle: CFTimeInterval) -> (String, String) {
         if notResponding() {
@@ -290,6 +304,7 @@ final class StallMonitor {
             readings[nextReading] = reading
         }
         nextReading = (nextReading + 1) % 32
+        CrashReporting.updateGPUHistory(diagnosticHistory(now: now) + "\n" + VMMemoryDiagnostics.shared.history())
     }
 
     private func diagnosticHistory(now: CFTimeInterval) -> String {
