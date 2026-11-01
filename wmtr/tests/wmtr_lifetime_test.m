@@ -77,6 +77,14 @@ int main(void) { @autoreleasepool {
   cmd.p.encoder=owned.ret; cmd.p.cmd_head.ptr=&cmd.c; cmd.c.type=WMTRenderCommandSetFragmentTexture; cmd.c.texture=0xdeadbeef;
   struct object_walk walk={a,(uint8_t *)&cmd,sizeof cmd,OBJECT_VALIDATE,38};
   CHECK(!objects_walk(&walk,(void *)&cmd,0));
+  /* DXMT heads every blit, compute and render list with a Nop (dxmt_context.cpp). 1.9.5 refused
+   * every blit and compute list: Death's Door drew a black frame with magenta menu arrows. */
+  for (uint16_t kind = 36; kind <= 38; kind++) {
+    struct { struct unixcall_generic_obj_cmd_noret p; struct wmtcmd_base head; } list={0};
+    list.p.encoder=owned.ret; list.p.cmd_head.ptr=&list.head;
+    struct object_walk nop={a,(uint8_t *)&list,sizeof list,OBJECT_VALIDATE,kind};
+    CHECK(objects_walk(&nop,(void *)&list,0));
+  }
   handle=owned.ret; CHECK(call(a,1,&handle,8)==0);
   /* A known but wrong object type is caught at the Objective-C boundary, not a VM abort. */
   CHECK(call(a,4,&owned,sizeof owned)==0);

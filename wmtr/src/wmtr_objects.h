@@ -108,6 +108,9 @@ static int objects_walk(struct object_walk *w, uint8_t *payload, int output) {
     struct wmtcmd_base *c = (void *)((struct unixcall_generic_obj_cmd_noret *)payload)->cmd_head.ptr;
     for (uint32_t n = 0; c; c = c->next.ptr, n++) {
       if (n > w->size / sizeof *c || !object_range(w, c, 1, sizeof *c)) return 0;
+      /* Nop (type 0) carries no objects. DXMT heads every blit/compute/render list with one, but
+       * winemetal_unix.c names only the render Nop, so the generated table lacks blit/compute */
+      if (c->type == 0) continue;
       switch (call - 36) {
 #define CMDS(K) switch (c->type) {
 #define CMD(kind, value, type) case value: OBJECT_INFO(type, c); break;
