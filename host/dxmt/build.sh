@@ -24,6 +24,10 @@
 # Objective-C dispatch; worker calls lease live objects. Invalid handles fail the call, late encoders
 # on committed command buffers and Objective-C exceptions lose only that context. `make test` includes
 # a strict real-object multi-context regression; the marshalling loopback still uses fake handles.
+# wmtr_dxmt_test drives DXMT's own guest API (winemetal_thunks.c) over the wmtr client into the
+# production libwmtr_host (DXMT's winemetal_unix.c, validation on, real Metal): blit, compute and
+# render lists headed by a Nop like dxmt_context.cpp's, checked on the GPU's results. 1.9.5 refused
+# every blit and compute list (Death's Door: black frame, magenta menu arrows); this test fails there.
 # WMTR_PRESENT_TRACE=1 logs actual drawable presentedTime/submit time/minimum duration for display
 # pacing investigations; the launcher's display-pacing diagnostics distinguish physical and guest Hz.
 #
