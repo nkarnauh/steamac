@@ -70,6 +70,9 @@ final class HIDPassthrough {
         /// When the slot last carried controller state (Puck slots only, monotonic clock).
         fileprivate var lastState: TimeInterval?
         fileprivate weak var owner: HIDPassthrough?
+        /// Where this device's input reports go while it is passed through (nil = not passed
+        /// through). Set by `activate` / `deactivate`.
+        fileprivate var onInput: ((UnsafeBufferPointer<UInt8>) -> Void)?
 
         var live: Bool {
             guard puckSlot != nil else { return true }
@@ -114,12 +117,8 @@ final class HIDPassthrough {
             [kIOHIDVendorIDKey: $0.vendor, kIOHIDProductIDKey: $0.product] as CFDictionary
         }
     }
-    /// The device whose input reports go to `onInput`.
-    private(set) var active: Device?
     /// Devices came or went.
     var onChange: (() -> Void)?
-    /// An input report of the active device (main thread).
-    var onInput: ((UnsafeBufferPointer<UInt8>) -> Void)?
     private let io = DispatchQueue(label: "es.fxgam.steamac.hid-passthrough")
 
     /// Start watching for supported devices; false if the IOHIDManager cannot be opened.
@@ -172,7 +171,6 @@ final class HIDPassthrough {
     /// Close the current manager and start a fresh one, so its devices open now (a grant took
     /// effect, or the matched set changed). The matching callback re-finds the devices.
     private func restart() {
-        deactivate()
         devices.removeAll()
         stopPuckTimer()
         if let m = manager {
@@ -197,11 +195,9 @@ final class HIDPassthrough {
         }
         guard let d = HIDPassthrough.device(ref) else { return }
         devices.append(d)
-        if d.puckSlot != nil {
-            d.owner = self
-            watch(d)
-            startPuckTimer()
-        }
+        d.owner = self
+        watch(d)
+        if d.puckSlot != nil { startPuckTimer() }
         log("hid passthrough: found \(d.identity.name) (\(d.identity.bus == HIDPassthrough.busBluetooth ? "Bluetooth" : "USB"), "
             + "\(d.identity.descriptor.count)-byte descriptor, input reports up to \(d.maxInput) bytes)")
         onChange?()
@@ -210,7 +206,6 @@ final class HIDPassthrough {
     private func removed(_ ref: IOHIDDevice) {
         guard let i = devices.firstIndex(where: { $0.ref == ref }) else { return }
         let d = devices.remove(at: i)
-        if active === d { deactivate() }
         if !devices.contains(where: { $0.puckSlot != nil }) { stopPuckTimer() }
         log("hid passthrough: \(d.identity.name) disconnected")
         onChange?()
@@ -225,7 +220,7 @@ final class HIDPassthrough {
             let d = Unmanaged<Device>.fromOpaque(ctx).takeUnretainedValue()
             guard let me = d.owner else { return }
             let reportID = report[0]
-            if HIDPassthrough.stateReports.contains(reportID) {
+            if d.puckSlot != nil, HIDPassthrough.stateReports.contains(reportID) {
                 let wasLive = d.live
                 d.lastState = ProcessInfo.processInfo.systemUptime
                 if !wasLive {
@@ -233,8 +228,8 @@ final class HIDPassthrough {
                     me.onChange?()
                 }
             }
-            // While active, every report goes to SteamOS (state, battery, wireless status, ...).
-            if me.active === d { me.onInput?(UnsafeBufferPointer(start: report, count: length)) }
+            // While passed through, every report goes to SteamOS (state, battery, wireless, ...).
+            d.onInput?(UnsafeBufferPointer(start: report, count: length))
         }, ctx)
     }
 
@@ -312,28 +307,15 @@ final class HIDPassthrough {
                       maxFeature: max(64, int(kIOHIDMaxFeatureReportSizeKey) ?? 0), puckSlot: puckSlot)
     }
 
-    /// Input reports of `d` go to `onInput` from now on (none of any other device).
-    func activate(_ d: Device) {
-        guard active !== d else { return }
-        deactivate()
-        active = d
-        // A Puck slot's callback stays registered (`watch`) and forwards while it is active.
-        guard d.puckSlot == nil else { return }
-        let ctx = Unmanaged.passUnretained(self).toOpaque()
-        IOHIDDeviceRegisterInputReportCallback(d.ref, d.inputBuffer, d.maxInput, { ctx, result, _, _, _, report, length in
-            guard let ctx, result == kIOReturnSuccess, length > 0 else { return }
-            let me = Unmanaged<HIDPassthrough>.fromOpaque(ctx).takeUnretainedValue()
-            me.onInput?(UnsafeBufferPointer(start: report, count: length))
-        }, ctx)
+    /// Input reports of `d` go to `handler` from now on (its input callback is registered once in
+    /// `watch` and routes through `Device.onInput`).
+    func activate(_ d: Device, handler: @escaping (UnsafeBufferPointer<UInt8>) -> Void) {
+        d.onInput = handler
     }
 
-    /// A nil callback unregisters ours (callbacks run on this, the main thread). IOKit keeps
-    /// copying the device's reports into its buffer, which lives as long as the Device.
-    func deactivate() {
-        guard let d = active else { return }
-        active = nil
-        guard d.puckSlot == nil else { return }
-        IOHIDDeviceRegisterInputReportCallback(d.ref, d.inputBuffer, d.maxInput, nil, nil)
+    /// Stop passing `d` through (its reports are no longer delivered).
+    func deactivate(_ d: Device) {
+        d.onInput = nil
     }
 
     enum ReportType: String {
