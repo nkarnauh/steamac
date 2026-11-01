@@ -20,7 +20,7 @@ Generated-by: LLM
 ---
 --- a/src/kosmickrisp/vulkan/kk_image_view.c
 +++ b/src/kosmickrisp/vulkan/kk_image_view.c
-@@ -54,6 +54,38 @@
+@@ -54,6 +54,41 @@
                     const VkImageViewCreateInfo *pCreateInfo)
  {
     VK_FROM_HANDLE(kk_image, image, pCreateInfo->image);
@@ -31,8 +31,11 @@ Generated-by: LLM
 +    * reaches Metal, which aborts the entire host process. Validate before the
 +    * initializer and before narrowing the range into kk_view_layout fields. */
 +   uint32_t layers = image->vk.array_layers;
++   /* Meta clears/copies use a 3D view with layerCount equal to the depth. */
++   const bool internal =
++      pCreateInfo->flags & VK_IMAGE_VIEW_CREATE_DRIVER_INTERNAL_BIT_MESA;
 +   if (image->vk.image_type == VK_IMAGE_TYPE_3D &&
-+       pCreateInfo->viewType != VK_IMAGE_VIEW_TYPE_3D)
++       (pCreateInfo->viewType != VK_IMAGE_VIEW_TYPE_3D || internal))
 +      layers = u_minify(image->vk.extent.depth,
 +                        MIN2(range->baseMipLevel, image->vk.mip_levels - 1));
 +   if (range->baseMipLevel >= image->vk.mip_levels ||

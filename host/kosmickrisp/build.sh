@@ -251,6 +251,7 @@
 #              selected 3D mip's depth, and a 65536-layer count narrowed to uint16 all reproduce the reported
 #              zero-slice Metal abort; valid remaining-layer and 3D-slice views do not. Reports lack the Vulkan
 #              arguments, so rejected views log the original range, extent, type, flags, usage and tiling.
+#              Driver-internal 3D meta clear/copy views use depth as layerCount and retain that convention.
 #              Repro: image_views.c (five valid controls, eight invalid cases including 0066's format case).
 #   0066       steamac: reject incompatible color texel-block sizes before Metal (STEAMAC-3 d7f4d319 and
 #              STEAMAC-62's 6C-associated event: a distinct RGBA8Unorm -> R8Unorm assertion, also at :1866).
