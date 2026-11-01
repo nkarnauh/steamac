@@ -168,6 +168,10 @@
 # All three print the capability they need and skip when the driver does not advertise it, so an honest
 # driver stays green; when it is advertised, the values must be right. REPRO_FORCE=1 skips the
 # capability check and makes the pipeline fail to compile, reproducing the game's failure on the host.
+# image_views.c (KosmicKrisp only; STEAMAC-62/64/3): empty and out-of-bounds
+# image-view slice ranges (explicit, REMAINING_ARRAY_LAYERS, 3D slices, narrowed
+# counts) and incompatible RGBA8 -> R8 views fail cleanly before Metal; valid
+# remaining-layer and 3D-slice controls still create.
 # All run with Metal API validation in assert mode (MTL_DEBUG_LAYER), so a Metal validation error
 # fails the run instead of aborting a VM later.
 # All applicable tests must pass on MoltenVK. On KosmicKrisp all but 5 and 10 must pass (1 sizes the descriptor pool with
@@ -400,6 +404,9 @@ build d3d12_caps
 "$work/d3d12_caps"
 
 if [ "$driver" = kosmickrisp ]; then
+	build image_views
+	"$work/image_views"
+
 	glslangValidator -V --quiet -x "$here/shaders/texture_descriptors.comp" -o "$work/texture_descriptors.comp.inc"
 	build texture_descriptors -I"$work"
 	"$work/texture_descriptors"
