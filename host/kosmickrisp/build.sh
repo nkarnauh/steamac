@@ -246,6 +246,16 @@
 #              for a Metal compile (0051 waited under virglrenderer's submission lock, and took static state
 #              for dynamic when the compile failed). A program destroyed during the inline compile of its first
 #              use (0057) is freed by that thread instead of leaking.
+#   0064       steamac: timestamp writes outside render encoders resolve contiguous entries in one range, and
+#              a recording starts another Metal command buffer (same allocator) every 16384 of them. Metal 4
+#              rejects a command buffer past a capacity of 61680 sample + dispatch + single-entry resolve
+#              triples (123330 with range resolves; M5 Pro, macOS 27.2; per command buffer, not per
+#              allocator): MTL4CommandQueueErrorDomain code 1 and nothing in it runs. #45: Ratchet & Clank:
+#              Rift Apart's vkd3d-proton writes ~790k timestamps in one one-time-submit command buffer
+#              (command buffer 68 failed with OutOfMemory, then the queue timed out and the device was lost
+#              ~9 s into play); it now completes in ~3.5 s of GPU time. Entries past the process' 131072 still
+#              read 0 (0045). Repro: host/moltenvk/repro queries.c (1 and 12 timestamp pools of 65536, every
+#              query written in one command buffer: 65536 read 0 with VkResult 0, 786432 lost the device).
 #   0065       steamac: reject empty/out-of-bounds image-view ranges before Mesa's assert-only range resolution
 #              and Metal (STEAMAC-62/64/3). Explicit zero layers, REMAINING_ARRAY_LAYERS at the array size or the
 #              selected 3D mip's depth, and a 65536-layer count narrowed to uint16 all reproduce the reported
