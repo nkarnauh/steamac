@@ -246,6 +246,12 @@
 #              for a Metal compile (0051 waited under virglrenderer's submission lock, and took static state
 #              for dynamic when the compile failed). A program destroyed during the inline compile of its first
 #              use (0057) is freed by that thread instead of leaking.
+#   0065       steamac: reject empty/out-of-bounds image-view ranges before Mesa's assert-only range resolution
+#              and Metal (STEAMAC-62/64/3). Explicit zero layers, REMAINING_ARRAY_LAYERS at the array size or the
+#              selected 3D mip's depth, and a 65536-layer count narrowed to uint16 all reproduce the reported
+#              zero-slice Metal abort; valid remaining-layer and 3D-slice views do not. Reports lack the Vulkan
+#              arguments, so rejected views log the original range, extent, type, flags, usage and tiling.
+#              Repro: image_views.c (five valid controls, eight invalid cases including 0066's format case).
 #
 # Two meson builds: (1) the host compiler tools mesa_clc + vtn_bindgen2 against Homebrew LLVM
 # (shared) and SPIRV-LLVM-Translator, installed into work/build/host-kosmickrisp/clc; (2) the driver
@@ -433,6 +439,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0047 = steamac: KK_WORKAROUND_11 (one shared MTL4Compiler) kept on macOS 27; compiling threads named after their compile"
 	echo "  0059 = steamac: zero texel-buffer widths are null; oversized views clamp to Metal's per-format capacity after alignment"
 	echo "  0061 = steamac: buffer-backed texture-buffer views inherit buffer residency, avoiding IOGPU's per-set entry limit"
+	echo "  0065 = steamac: reject empty/out-of-bounds image view ranges before Metal, with original Vulkan arguments logged"
 	echo
 	echo "Known gaps (host/moltenvk/repro/run.sh): transform feedback with strip geometry shaders and"
 	echo "the overflow counter (draft !44928)."
