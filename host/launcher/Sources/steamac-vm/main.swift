@@ -456,7 +456,7 @@ do {
     let focusBeforeKeyboard = progress.onFocus
     progress.onFocus = { f in
         focusBeforeKeyboard?(f)
-        if case .desktop = f { keyboardLayouts.desktopFocused() }
+        keyboardLayouts.focused(f)
     }
     keyboardLayouts.start()
     let suspender = SuspendController(ctx: vm.ctx, clock: clockPort, sleepPort: sleepPort, window: wc, presenter: presenter,

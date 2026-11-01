@@ -40,7 +40,8 @@
 //! lifecycle below (worker thread; the bundle goes out from the main loop);
 //! `freeze-game <appid>` / `thaw-game` / `still-background` (freeze.rs: pause
 //! the focused game while the launcher is in the background); `profiles <base64-json>`,
-//! `launch <appid>`, `restart-steam` (profiles.rs: serialized background worker).
+//! `launch <appid>`, `restart-steam` (profiles.rs: serialized background worker);
+//! `keyboard-layout <index> <layout[(variant)]>...` (keyboard.rs: latest-only worker).
 //!
 //! Lifecycle
 //!   1. port missing (older launcher) -> exit 0 quietly.

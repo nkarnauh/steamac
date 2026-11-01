@@ -19,7 +19,7 @@ fn parse(arg: &str) -> Option<Vec<String>> {
     let words: Vec<String> = arg.split_whitespace().map(str::to_owned).collect();
     let ok = words.len() >= 2
         && words[0].parse::<usize>().is_ok_and(|i| i < words.len() - 1)
-        && words[1..].iter().all(|w| w.len() <= 40 && w.bytes().all(|b| b.is_ascii_alphanumeric() || b"_()".contains(&b)));
+        && words[1..].iter().all(|w| w.len() <= 40 && w.bytes().all(|b| b.is_ascii_alphanumeric() || b"_()-".contains(&b)));
     ok.then_some(words)
 }
 
@@ -55,6 +55,7 @@ mod tests {
     fn requests() {
         assert_eq!(parse("1 us ru(mac)"), Some(vec!["1".into(), "us".into(), "ru(mac)".into()]));
         assert_eq!(parse("0 us"), Some(vec!["0".into(), "us".into()]));
+        assert_eq!(parse("1 us(dvorak-l) ca(fr-legacy)"), Some(vec!["1".into(), "us(dvorak-l)".into(), "ca(fr-legacy)".into()]));
         assert_eq!(parse("2 us ru"), None, "index beyond the list");
         assert_eq!(parse("us ru"), None, "no index");
         assert_eq!(parse("0"), None, "no layouts");

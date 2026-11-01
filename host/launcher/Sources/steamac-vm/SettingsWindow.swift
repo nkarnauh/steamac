@@ -321,7 +321,7 @@ private struct GeneralTab: View {
                 }
                 Toggle(isOn: $settings.followMacKeyboard) {
                     Label2(title: "Use the Mac's keyboard layouts in Desktop Mode",
-                           detail: String(localized: "Desktop Mode gets the keyboard layouts enabled on the Mac and switches with the Mac's input source (Fn/Globe, Control-Space)."),
+                           detail: String(localized: "Desktop Mode follows the Mac's keyboard layouts (Fn/Globe, Control-Space) until you change the layouts in SteamOS. The first sync replaces existing layouts; later user edits win."),
                            now: true, key: .followMacKeyboard)
                 }
             }

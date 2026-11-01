@@ -425,18 +425,25 @@ into Desktop Mode (`steamos-session-select plasma-persistent`) reports `ready` w
 by default, applies now), Desktop Mode has the keyboard layouts enabled on the Mac, in the Input
 menu's order, and switches with the Mac's input source (Globe key, Control-Space). The launcher maps
 each to an XKB layout (`com.apple.keylayout.Russian` → `ru(mac)`, `RussianWin` → `ru(winkeys)`,
-`German` → `de(mac)`, …; otherwise the source's first language, else `us`; an input method counts as
-the layout it types with) and sends `keyboard-layout <active index> <layout(variant)>…` over
+`German` → `de(mac)`, …; otherwise only a closed list of unambiguous first languages; unknown
+sources are skipped; an input method counts as the layout it types with). At most four layouts
+are sent (XKB's limit), always including the active one, as `keyboard-layout <active index> <layout(variant)>…` over
 `fx.progress` on every change and whenever Desktop Mode gets the focus, again 1.5, 4 and 8 s later
 (Plasma's startup selects its first layout after KWin took ours). The agent runs
-`/usr/lib/steamac/desktop-keyboard` (latest request only, never blocking): it writes the list to
-Plasma's `kxkbrc` when it differs, has KWin reload it (`reloadConfig` on `org.kde.keyboard`
-`/Layouts`) and selects the active one (`org.kde.KeyboardLayouts.setLayout`) on the nested session's
-bus, whose address `nested-desktop` writes to `nested_plasma/steamac-session-bus`. macOS often posts
-its input source notification 0.55–0.85 s after a Globe-key switch, so while the launcher is the
-active app it polls the current layout every 30 ms (12 µs a call): the layout changes in Plasma
-within about 0.1 s. The keys stay the Mac's physical keys (evdev codes); the layout decides what they
-type. Gaming mode keeps its layout.
+`/usr/lib/steamac/desktop-keyboard` (latest request only, never blocking): it checks each layout
+and variant against the guest's XKB symbols, drops unknown ones and recomputes the active index
+(if the active layout was dropped, it does not switch). Like the Mac clock format, it follows
+the Mac until changed in SteamOS: the first sync replaces even existing custom layouts; after
+that an observed user edit of Plasma's layouts wins permanently. The marker is
+`~/.config/steamac/mac-keyboard.json`; switching off the setting stops sync, without restoring
+the old list. While following, it writes `kxkbrc` (including empty `DisplayNames`), asks KWin to
+reload when the file changes or KWin's layout codes differ (`reloadConfig` on `org.kde.keyboard`
+`/Layouts`), and selects the active layout (`org.kde.KeyboardLayouts.setLayout`) on the live nested
+session bus (`nested_plasma/steamac-session-bus`; absent or stale bus means no-op). macOS often
+posts its input-source notification 0.55–0.85 s after a Globe-key switch, so only while this setting
+is on, Desktop Mode has focus and the launcher is active, it polls the current layout every 30 ms.
+The keys stay the Mac's physical keys (evdev codes); the layout decides what they type.
+Gaming mode keeps its layout.
 
 Flatpak apps (Discover) run in bubblewrap, which mounts its own procfs in a user namespace. The kernel
 allows that only while some procfs in the mount namespace is fully visible, and the initramfs binds

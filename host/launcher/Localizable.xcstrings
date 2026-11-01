@@ -1897,18 +1897,18 @@
         }
       }
     },
-    "Desktop Mode gets the keyboard layouts enabled on the Mac and switches with the Mac's input source (Fn/Globe, Control-Space)." : {
+    "Desktop Mode follows the Mac's keyboard layouts (Fn/Globe, Control-Space) until you change the layouts in SteamOS. The first sync replaces existing layouts; later user edits win." : {
       "localizations" : {
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Режим рабочего стола получает раскладки, включённые на Mac, и переключается вместе с источником ввода Mac (Fn/глобус, Control-пробел)."
+            "value" : "Режим рабочего стола следует за раскладками Mac (Fn/глобус, Control-пробел), пока вы не измените их в SteamOS. Первая синхронизация заменяет прежние раскладки; последующие правки пользователя имеют приоритет."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "桌面模式使用 Mac 上启用的键盘布局，并随 Mac 的输入法一起切换（Fn/地球仪键、Control-空格）。"
+            "value" : "桌面模式跟随 Mac 的键盘布局（Fn/地球仪键、Control-空格），直到你在 SteamOS 中更改布局。首次同步会替换现有布局；之后用户的更改优先。"
           }
         }
       }
