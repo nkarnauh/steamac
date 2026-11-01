@@ -529,6 +529,10 @@ do {
                           gameStats)) {
         app.run()
     }
+} catch let error as DiskLock.InUse {
+    log("error: \(error)")
+    MainActor.assumeIsolated { AppBundle.alertIfLaunchedFromFinder("SteamOS is already running", error.localizedDescription) }
+    exit(CrashReporting.startupRejectedStatus)
 } catch {
     fatal("\(error)")
 }
