@@ -267,6 +267,11 @@
 #              Metal API validation in copyFromBuffer:toTexture: on M1 Max). STEAMAC-5E/5F has that
 #              CmdCopyImage2 fallback stack, but its resource formats were not captured. Repro:
 #              host/moltenvk/repro/sentry-image-copy.c compressed (1/2/4/8 BC1, every byte checked).
+#   0072       steamac: the same image-copy fallback sizes its scratch buffer for every depth slice
+#              of a 3D volume and advances its scratch offset by that volume; requests past the
+#              32-bit pool limit fail command recording instead of truncating the allocation. A
+#              256x256x8 RG32_UINT -> RGBA16_UINT copy used 4 MiB of a 512 KiB buffer and aborted
+#              Metal validation on M1 Max. Repro: sentry-image-copy.c color (all volume bytes checked).
 #   0074       steamac: prioritize fault feedback and shader excerpts before innocent victims and successful
 #              compositor records in bounded GPU-failure diagnostics (STEAMAC-G); no submission changes.
 #
@@ -460,6 +465,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"
 	echo "  0071 = steamac: clamp expanded compressed-copy destination extents to the mip edge"
+	echo "  0072 = steamac: include every depth slice in image-copy fallback scratch storage"
 	echo "  0074 = steamac: prioritize GPU fault feedback before victims and successful compositor records"
 	echo
 	echo "Known gaps (host/moltenvk/repro/run.sh): transform feedback with strip geometry shaders and"
