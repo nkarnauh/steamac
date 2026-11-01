@@ -262,6 +262,10 @@
 #              without a Vulkan debug messenger or MESA_VK_LOG: the fixed-driver repro showed that vk_errorf
 #              alone is silent by default. This distinguishes the possible zero-slice Vulkan inputs in the
 #              next guest report instead of attributing one without evidence.
+#   0068       steamac: missing pipeline-layout descriptors (STEAMAC-6H/6G): a shader may reference a
+#              set/binding absent from Venus independent-set layouts. Lower absent resources to null
+#              (zero reads/atomic results, dropped writes), guard descriptor lookup, and print the
+#              first missing stage/set/binding once per pipeline. Valid layouts retain their selected robustness.
 #   0071       steamac: compatible-format image copies into compressed mip tails clamp the expanded
 #              destination extent to the mip edge (RG32_UINT -> 1x1 BC1 expanded to 4x4 and aborted
 #              Metal API validation in copyFromBuffer:toTexture: on M1 Max). STEAMAC-5E/5F has that
@@ -472,6 +476,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0065 = steamac: reject empty/out-of-bounds image view ranges before Metal, with original Vulkan arguments logged"
 	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"
+	echo "  0068 = steamac: lower unprovided pipeline-layout descriptors to null, diagnosing the first missing stage/set/binding"
 	echo "  0071 = steamac: clamp expanded compressed-copy destination extents to the mip edge"
 	echo "  0072 = steamac: include every depth slice in image-copy fallback scratch storage"
 	echo "  0073 = steamac: retain copy/render encoder descriptor shapes before entering AGX on Apple9+ (cbs on any GPU)"
