@@ -272,6 +272,14 @@
 #              32-bit pool limit fail command recording instead of truncating the allocation. A
 #              256x256x8 RG32_UINT -> RGBA16_UINT copy used 4 MiB of a 512 KiB buffer and aborted
 #              Metal validation on M1 Max. Repro: sentry-image-copy.c color (all volume bytes checked).
+#   0073       steamac: log new copy/render descriptor shapes before entering AGX on Apple9+,
+#              with a ready marker after the call: Metal formats/types, sizes, levels/layers,
+#              samples, usage/storage/buffer backing, attachment load/store/resolve metadata and
+#              copy offsets/strides/options. A per-thread 64-entry shape cache avoids repeat-frame
+#              logs; MESA_KK_DEBUG=cbs logs every call/return on any GPU. STEAMAC-5H and STEAMAC-3
+#              e265653f are one M4 Pro render-load/background-program compiler abort without an
+#              AGX reason or descriptor data; neither that M4 failure nor 5E/5F's actual resource
+#              shape is provable on M1 Max. Existing residency.c exercises descriptor logging.
 #   0074       steamac: prioritize fault feedback and shader excerpts before innocent victims and successful
 #              compositor records in bounded GPU-failure diagnostics (STEAMAC-G); no submission changes.
 #
@@ -466,6 +474,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"
 	echo "  0071 = steamac: clamp expanded compressed-copy destination extents to the mip edge"
 	echo "  0072 = steamac: include every depth slice in image-copy fallback scratch storage"
+	echo "  0073 = steamac: retain copy/render encoder descriptor shapes before entering AGX on Apple9+ (cbs on any GPU)"
 	echo "  0074 = steamac: prioritize GPU fault feedback before victims and successful compositor records"
 	echo
 	echo "Known gaps (host/moltenvk/repro/run.sh): transform feedback with strip geometry shaders and"
