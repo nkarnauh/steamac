@@ -80,6 +80,7 @@ final class VMView: NSView {
     /// Fallback geometry for pointer mapping before the first frame.
     var contentPixelSize: CGSize
     weak var controller: WindowController?
+    private var displayDiagnosticTimer: Timer?
 
     init(frame: NSRect, renderer: Renderer, contentPixelSize: CGSize) {
         self.renderer = renderer
@@ -107,6 +108,65 @@ final class VMView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    deinit {
+        displayDiagnosticTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        displayDiagnosticTimer?.invalidate()
+        displayDiagnosticTimer = nil
+        let nc = NotificationCenter.default
+        nc.removeObserver(self)
+        guard let window else { return }
+        nc.addObserver(self, selector: #selector(displayConfigurationChanged(_:)),
+                       name: NSWindow.didChangeScreenNotification, object: window)
+        nc.addObserver(self, selector: #selector(displayConfigurationChanged(_:)),
+                       name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        logDisplayConfiguration(reason: "window attached")
+        // DXMT's game layer bypasses Renderer. Sample its actual policy, not the main
+        // scanout layer's policy, so a report can distinguish unsynced presents from
+        // a mismatched host mode. This does not drive rendering or change its cadence.
+        let timer = Timer(timeInterval: PerfStats.period, repeats: true) { [weak self] _ in
+            guard PerfStats.shared != nil else { return }
+            self?.logDisplayConfiguration(reason: "perf sample")
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        displayDiagnosticTimer = timer
+    }
+
+    @objc private func displayConfigurationChanged(_ notification: Notification) {
+        logDisplayConfiguration(reason: notification.name.rawValue)
+    }
+
+    /// Mode refresh can be zero on variable-refresh screens: retain the AppKit interval
+    /// range and granularity rather than substituting an assumed 60/120 Hz clock.
+    private func logDisplayConfiguration(reason: String) {
+        guard let window, let screen = window.screen,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return }
+        let id = CGDirectDisplayID(number.uint32Value)
+        let mode = CGDisplayCopyDisplayMode(id)
+        let hostMode = mode.map {
+            "\($0.pixelWidth)x\($0.pixelHeight)@\(String(format: "%.3f", $0.refreshRate)) Hz"
+        } ?? "unavailable"
+        func policy(_ layer: CAMetalLayer) -> String {
+            "\(ObjectIdentifier(layer)) \(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height))"
+                + " hidden=\(layer.isHidden) sync=\(layer.displaySyncEnabled)"
+                + " drawables=\(layer.maximumDrawableCount) timeout=\(layer.allowsNextDrawableTimeout)"
+        }
+        let games = (metalLayer.sublayers ?? []).compactMap { $0 as? CAMetalLayer }
+        log("display pacing: \(reason); host \"\(screen.localizedName)\" id=\(id) builtin=\(CGDisplayIsBuiltin(id) != 0)"
+            + " mode=\(hostMode) max-fps=\(screen.maximumFramesPerSecond)"
+            + " refresh-ms min/max/granularity="
+            + String(format: "%.3f/%.3f/%.3f", screen.minimumRefreshInterval * 1000,
+                     screen.maximumRefreshInterval * 1000, screen.displayUpdateGranularity * 1000)
+            + " backing-scale=\(window.backingScaleFactor) fullscreen=\(window.styleMask.contains(.fullScreen))"
+            + " guest-layer={\(policy(metalLayer))} game-visible=\(gameLayersVisible)"
+            + " game-layers=[\(games.map { policy($0) }.joined(separator: "; "))]"
+            + "; scanout perf shown is estimated, not DXMT game presentation timing")
+    }
+
     override func makeBackingLayer() -> CALayer { metalLayer }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -115,6 +175,7 @@ final class VMView: NSView {
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         updateDrawableSize()
+        logDisplayConfiguration(reason: "backing properties changed")
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -166,6 +227,7 @@ final class VMView: NSView {
         didSet {
             Self.applyGameLayers(visible: gameLayersVisible, in: metalLayer)
             Self.applyHUD(metalHUD, gameVisible: gameLayersVisible, main: metalLayer, mainAttached: hudAttached)
+            controller?.refreshHostCursor()
         }
     }
 

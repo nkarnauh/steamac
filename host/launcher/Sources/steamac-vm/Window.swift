@@ -3,6 +3,7 @@ import AppKit
 import Carbon.HIToolbox
 import CoreGraphics
 import Foundation
+import QuartzCore
 
 /// Routes key events to the guest before AppKit's key-equivalent/menu machinery (which would
 /// otherwise swallow Cmd-combos and their keyUps).
@@ -71,6 +72,8 @@ final class WindowController: NSObject, NSWindowDelegate {
     private var captured = false
     /// The Mac cursor is hidden over the picture (updateHostCursor); one NSCursor.hide while set.
     private var hostCursorHidden = false
+    /// Last reported presentation state; log changes, not every mouse motion / wmtr present.
+    private var lastCursorPresentation: (captured: Bool, covered: Bool, hidden: Bool)?
     private var relRemainder = (0.0, 0.0)
     /// Auto mode: where the guest cursor is (guest pixels); nil = unknown, re-anchor first.
     private var guestCursor: (Int, Int)?
@@ -821,6 +824,7 @@ extension WindowController {
         relRemainder = (0, 0)
         CGAssociateMouseAndMouseCursorPosition(0)
         NSCursor.hide()
+        refreshHostCursor()
         log("input: mouse captured")
         updateTitle()
         window.invalidateCursorRects(for: pill)
@@ -853,24 +857,48 @@ extension WindowController {
         releasePointer()
         releaseButtons()
         setHostCursorHidden(false)
+        reportCursorPresentation(covered: guestCursorCovered(at: window.mouseLocationOutsideOfEventStream), hidden: false)
         guestCursor = nil
     }
 
-    /// gamescope draws the SteamOS cursor itself, so over the picture the Mac cursor is hidden
-    /// (two cursors otherwise, the Mac one a frame or two ahead). Only in `auto` mode: `tablet`
-    /// is for other guest compositors, which may put their cursor on a plane the host does not
-    /// draw, and in `capture` the guest cursor does not follow until a click captures. It shows
-    /// outside the picture, over a clickable view (pill, "Report…"), under the boot overlay
-    /// (opaque, it covers gamescope's cursor), while booting, paused or asleep, and wherever
-    /// another window (a menu, the full-screen menu bar, an alert) is on top. While captured,
-    /// grabPointer hides it on its own.
+    /// gamescope normally draws the SteamOS cursor into scanout, so auto mode hides the Mac
+    /// cursor to avoid duplicates. wmtr's opaque game layer can cover that cursor (STEAMAC-5Z).
+    /// Log actual layer coverage and host hiding rather than assuming that enabling wmtr proves
+    /// the cursor is missing: the game may draw its own cursor or intentionally hide it. wmtr
+    /// does not remote guest cursor visibility/shape, so showing a replacement Mac arrow would
+    /// be a guess, especially during captured mouse-look. Preserve policy until that state exists.
+    /// Exclusions below keep the cursor over launcher UI, bars and other windows.
     private func updateHostCursor(_ e: NSEvent) { updateHostCursor(at: e.locationInWindow) }
+
+    /// Pure policy, also checked by --selftest-pointer. Captured hiding is owned by grabPointer.
+    static func hostCursorShouldBeHidden(mouseMode: MouseMode, captured: Bool) -> Bool {
+        captured || mouseMode == .auto
+    }
+
+    /// `point` is in the scanout layer's coordinates. Detect scanout occlusion, not guest cursor
+    /// visibility: only wmtr's opaque Metal sublayers replace scanout, not ordinary launcher layers.
+    static func guestCursorCovered(at point: CGPoint, in picture: CAMetalLayer) -> Bool {
+        for case let layer as CAMetalLayer in picture.sublayers ?? [] {
+            if !layer.isHidden && layer.isOpaque && layer.opacity == 1,
+               layer.contains(layer.convert(point, from: picture)) { return true }
+        }
+        return false
+    }
+
+    func guestCursorCovered(at location: NSPoint) -> Bool {
+        Self.guestCursorCovered(at: view.convert(location, from: nil), in: view.metalLayer)
+    }
 
     /// `location` in window coordinates. Also hidden only while this is the key window: a
     /// non-key window gets no mouseMoved, and releaseAll showed the cursor when key was lost.
     private func updateHostCursor(at location: NSPoint) {
-        guard !captured else { return }
-        var hide = mouseMode == .auto && !bootOrShutdown && !overlay.shown && !pauseView.shown && !guestAsleep
+        let covered = guestCursorCovered(at: location)
+        guard !captured else {
+            reportCursorPresentation(covered: covered, hidden: true)
+            return
+        }
+        var hide = Self.hostCursorShouldBeHidden(mouseMode: mouseMode, captured: captured)
+            && !bootOrShutdown && !overlay.shown && !pauseView.shown && !guestAsleep
             && window.isKeyWindow && inPicture(at: location)
         if hide, let sup = view.superview {
             hide = view.hitTest(sup.convert(location, from: nil)) === view
@@ -880,12 +908,21 @@ extension WindowController {
             hide = NSWindow.windowNumber(at: window.convertPoint(toScreen: location), belowWindowWithWindowNumber: 0) == window.windowNumber
         }
         setHostCursorHidden(hide)
+        reportCursorPresentation(covered: covered, hidden: hide)
+    }
+
+    private func reportCursorPresentation(covered: Bool, hidden: Bool) {
+        guard lastCursorPresentation?.captured != captured || lastCursorPresentation?.covered != covered
+                || lastCursorPresentation?.hidden != hidden else { return }
+        lastCursorPresentation = (captured, covered, hidden)
+        log("input: cursor presentation mode=\(mouseMode.rawValue) captured=\(captured) scanout-cursor-covered=\(covered) host-hidden=\(hidden) focus=\(guestFocus)")
     }
 
     /// What decides the cursor changed without the mouse moving: the progress phase, the pause
     /// card, sleep, the pill, the overlay or the stall card and its "Report…" link coming or
     /// going, the window becoming key or changing size, the scanout or the focused surface
-    /// changing (the picture's rectangle), a capture ending. Decided from where the pointer is now.
+    /// changing (the picture's rectangle), a wmtr layer attaching/hiding/detaching, a capture ending.
+    /// Decided from where the pointer is now.
     func refreshHostCursor() {
         updateHostCursor(at: window.mouseLocationOutsideOfEventStream)
     }
@@ -897,7 +934,10 @@ extension WindowController {
     }
 
     func pointerExited() {
-        if !captured { setHostCursorHidden(false) }
+        if !captured {
+            setHostCursorHidden(false)
+            reportCursorPresentation(covered: guestCursorCovered(at: window.mouseLocationOutsideOfEventStream), hidden: false)
+        }
     }
 
     private func button(for e: NSEvent) -> UInt16 {
