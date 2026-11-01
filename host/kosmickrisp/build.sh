@@ -266,6 +266,10 @@
 #              set/binding absent from Venus independent-set layouts. Lower absent resources to null
 #              (zero reads/atomic results, dropped writes), guard descriptor lookup, and print the
 #              first missing stage/set/binding once per pipeline. Valid layouts retain their selected robustness.
+#   0069       steamac: malformed NIR diagnostics (STEAMAC-5T): check instruction classes/opcodes and SSA
+#              sources before each bulk varyings pass; log stage and source BLAKE3 and reject malformed input
+#              without terminating the host. Root cause remains unproven; this does not claim to fix
+#              corruption introduced inside varying optimization.
 #   0071       steamac: compatible-format image copies into compressed mip tails clamp the expanded
 #              destination extent to the mip edge (RG32_UINT -> 1x1 BC1 expanded to 4x4 and aborted
 #              Metal API validation in copyFromBuffer:toTexture: on M1 Max). STEAMAC-5E/5F has that
@@ -477,6 +481,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"
 	echo "  0068 = steamac: lower unprovided pipeline-layout descriptors to null, diagnosing the first missing stage/set/binding"
+	echo "  0069 = steamac: diagnose malformed NIR with stage/source hash before bulk varying optimization"
 	echo "  0071 = steamac: clamp expanded compressed-copy destination extents to the mip edge"
 	echo "  0072 = steamac: include every depth slice in image-copy fallback scratch storage"
 	echo "  0073 = steamac: retain copy/render encoder descriptor shapes before entering AGX on Apple9+ (cbs on any GPU)"
