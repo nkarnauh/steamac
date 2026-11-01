@@ -254,8 +254,8 @@
 #              Rift Apart's vkd3d-proton writes ~790k timestamps in one one-time-submit command buffer
 #              (command buffer 68 failed with OutOfMemory, then the queue timed out and the device was lost
 #              ~9 s into play); it now completes in ~3.5 s of GPU time. Entries past the process' 131072 still
-#              read 0 (0045). Repro: host/moltenvk/repro queries.c (1 and 12 timestamp pools of 65536, every
-#              query written in one command buffer: 65536 read 0 with VkResult 0, 786432 lost the device).
+#              read 0 (0045). Repro: host/moltenvk/repro queries.c (1 and 3 timestamp pools of 65536, every
+#              query written in one command buffer, the first pool non-zero and not decreasing).
 #   0065       steamac: reject empty/out-of-bounds image-view ranges before Mesa's assert-only range resolution
 #              and Metal (STEAMAC-62/64/3). Explicit zero layers, REMAINING_ARRAY_LAYERS at the array size or the
 #              selected 3D mip's depth, and a 65536-layer count narrowed to uint16 all reproduce the reported
@@ -487,6 +487,7 @@ mv -f "$lib.tmp.$$" "$lib"
 	echo "  0047 = steamac: KK_WORKAROUND_11 (one shared MTL4Compiler) kept on macOS 27; compiling threads named after their compile"
 	echo "  0059 = steamac: zero texel-buffer widths are null; oversized views clamp to Metal's per-format capacity after alignment"
 	echo "  0061 = steamac: buffer-backed texture-buffer views inherit buffer residency, avoiding IOGPU's per-set entry limit"
+	echo "  0064 = steamac: coalesce timestamp resolves and split timestamp-heavy recordings every 16384 writes"
 	echo "  0065 = steamac: reject empty/out-of-bounds image view ranges before Metal, with original Vulkan arguments logged"
 	echo "  0066 = steamac: reject incompatible color image view texel-block sizes before Metal"
 	echo "  0067 = steamac: rejected image view Vulkan arguments printed on stderr in release builds"

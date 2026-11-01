@@ -546,10 +546,11 @@ int main(int argc, char **argv)
 	/* #45: Ratchet & Clank: Rift Apart's vkd3d-proton resets and writes ~790k timestamps in one one-time-submit command
 	 * buffer. KosmicKrisp encoded a counter sample, a write_u32 dispatch and a single-entry resolve per timestamp into
 	 * one Metal command buffer, which Metal 4 rejects past a capacity (61680 such timestamps on an M5 Pro): 65536 read 0
-	 * with VkResult 0, 786432 lost the device. One pool of 65536, then 12 (past the 131072 counter heap entries, whose
-	 * extra queries read 0): the submission completes, every query is available and the first pool's are non-zero. */
+	 * with VkResult 0, 786432 lost the device. One pool of 65536, then 3 (past the 131072 counter heap entries, whose
+	 * extra queries read 0): the submission completes, every query is available and the first pool's are non-zero
+	 * and not decreasing. */
 	{
-		enum { NQ = 65536, NP = 12 };
+		enum { NQ = 65536, NP = 3 };
 		static VkQueryPool bp[NP];
 		VkQueryPoolCreateInfo t64k = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .queryType = VK_QUERY_TYPE_TIMESTAMP,
 			.queryCount = NQ };
@@ -578,7 +579,7 @@ int main(int argc, char **argv)
 			VkResult r = vkQueueSubmit(queue, 1, &s, VK_NULL_HANDLE);
 			if (r == VK_SUCCESS)
 				r = vkQueueWaitIdle(queue);
-			uint64_t unavailable = 0, zero = 0;
+			uint64_t unavailable = 0, zero = 0, decreasing = 0;
 			for (int p = 0; p < npools[round] && r == VK_SUCCESS; p++) {
 				memset(res, 0, sizeof(res));
 				r = vkGetQueryPoolResults(dev, bp[p], 0, NQ, sizeof(res), res, 16,
@@ -586,12 +587,14 @@ int main(int argc, char **argv)
 				for (uint32_t q = 0; q < NQ; q++) {
 					unavailable += res[q][1] != 1;
 					zero += res[q][1] == 1 && res[q][0] == 0 && p == 0;
+					decreasing += p == 0 && q > 0 && res[q][0] < res[q - 1][0];
 				}
 			}
-			const int ok = r == VK_SUCCESS && !unavailable && !zero;
+			const int ok = r == VK_SUCCESS && !unavailable && !zero && !decreasing;
 			printf("%-4s %d timestamp pool(s) of %d, every query written in one one-time command buffer (%d timestamps): "
-			       "VkResult %d, %llu unavailable, %llu of the first pool zero\n", ok ? "OK" : "FAIL", npools[round], NQ,
-			       npools[round] * NQ, r, (unsigned long long)unavailable, (unsigned long long)zero);
+			       "VkResult %d, %llu unavailable, %llu of the first pool zero, %llu decreasing\n",
+			       ok ? "OK" : "FAIL", npools[round], NQ, npools[round] * NQ, r,
+			       (unsigned long long)unavailable, (unsigned long long)zero, (unsigned long long)decreasing);
 			fails += !ok;
 			vkFreeCommandBuffers(dev, bpool, 1, &bc);
 		}
